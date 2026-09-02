@@ -1,0 +1,36 @@
+/* Self-contained 3D visualizer styling. Base rules mirror src/seq01.css; adapter rules below support
+   the standalone HasmVisualizerComponent (legend/inspector) used outside the Tauri app shell. */
+.visualizer-page { min-height: 100vh; display: grid; grid-template-rows: auto minmax(0, 1fr); padding: 18px; gap: 14px; }
+.visualizer-toolbar { display: flex; align-items: end; gap: 18px; flex-wrap: wrap; padding: 14px 18px; border: 1px solid var(--theme-border); background: var(--theme-soft); }
+.visualizer-toolbar h1 { margin: 0; font-size: 1.4rem; }
+.visualizer-toolbar label { margin: 0; display: grid; gap: 5px; font-size: 0.82rem; }
+.visualizer-toolbar select, .visualizer-toolbar input { color: var(--theme-input-text); background: var(--theme-input-bg); border: 1px solid var(--theme-border); padding: 6px; }
+.graph-stage { position: relative; min-height: 520px; overflow: hidden; border: 1px solid var(--theme-border); background: var(--theme-textbackground); }
+.graph-canvas, .graph-stage canvas { position: absolute; inset: 0; display: block; width: 100%; height: 100%; touch-action: none; }
+.graph-progress, .graph-warning, .graph-notice { position: absolute; z-index: 2; margin: 14px; padding: 10px; border: 1px solid var(--theme-border); background: var(--theme-soft); }
+.graph-progress { inset: auto 0 0 0; margin: 0; border-width: 1px 0 0; }
+.graph-progress progress { width: 100%; accent-color: var(--theme-primary); }
+.graph-warning { color: var(--theme-danger); }
+.graph-notice { color: var(--theme-muted); }
+.graph-tooltip { position: fixed; z-index: 3; pointer-events: none; padding: 6px 9px; color: var(--theme-text); background: var(--theme-surface); border: 1px solid var(--theme-border); font-size: 0.8rem; }
+
+.HasmVisualizer_Container > .HasmVisualizer_Legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  padding: 12px 16px;
+  border: 1px solid var(--theme-border);
+  background: var(--theme-soft);
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+.HasmVisualizer_Container .HasmVisualizer_LegendItem { display: flex; align-items: center; gap: 6px; }
+.HasmVisualizer_Container .HasmVisualizer_LegendDot { width: 12px; height: 12px; border-radius: 2px; }
+.HasmVisualizer_Container > .HasmVisualizer_Inspector {
+  padding: 16px;
+  border: 1px solid var(--theme-border);
+  border-left: 4px solid var(--theme-primary);
+  background: var(--theme-soft);
+}
+.HasmVisualizer_Container .HasmVisualizer_InspectorTitle { margin: 0 0 6px; font-family: Georgia, serif; font-size: 1.1rem; font-weight: 700; }
+.HasmVisualizer_Container .HasmVisualizer_InspectorMeta { display: flex; flex-wrap: wrap; gap: 12px; color: var(--theme-muted); font-size: 0.8rem; }

@@ -1,0 +1,314 @@
+import * as THREE from "three";
+import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
+
+function hexToRgb(hexColor) {
+  const hex = String(hexColor).replace("#", "");
+  return {
+    r: Number.parseInt(hex.slice(0, 2), 16),
+    g: Number.parseInt(hex.slice(2, 4), 16),
+    b: Number.parseInt(hex.slice(4, 6), 16),
+  };
+}
+
+function mixHex(firstColor, secondColor, ratio) {
+  const first = hexToRgb(firstColor);
+  const second = hexToRgb(secondColor);
+  const channel = (key) => Math.round(first[key] + (second[key] - first[key]) * ratio);
+  return `#${[channel("r"), channel("g"), channel("b")].map((value) => value.toString(16).padStart(2, "0")).join("")}`;
+}
+
+// WCAG relative luminance, used to derive the contrast ratio between two colors.
+function relativeLuminance(hexColor) {
+  const { r, g, b } = hexToRgb(hexColor);
+  const linear = [r, g, b].map((channel) => channel / 255).map((value) => (value <= 0.03928 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4));
+  return (0.2126 * linear[0]) + (0.7152 * linear[1]) + (0.0722 * linear[2]);
+}
+
+function contrastRatio(firstColor, secondColor) {
+  const lighter = Math.max(relativeLuminance(firstColor), relativeLuminance(secondColor));
+  const darker = Math.min(relativeLuminance(firstColor), relativeLuminance(secondColor));
+  return (lighter + 0.05) / (darker + 0.05);
+}
+
+// Steps a color toward white or away from the background until it reads clearly against it (WCAG AA, ratio >= 4.5).
+function ensureReadableColor(color, backgroundColor, minRatio = 4.5) {
+  if (contrastRatio(color, backgroundColor) >= minRatio) return color;
+  const target = relativeLuminance(backgroundColor) < 0.5 ? "#ffffff" : "#000000";
+  for (let step = 1; step <= 10; step += 1) {
+    const candidate = mixHex(color, target, step / 10);
+    if (contrastRatio(candidate, backgroundColor) >= minRatio) return candidate;
+  }
+  return target;
+}
+
+// Derives PERSON/EXPERIENCE/FACT accents from the active color pattern instead of fixed hex values, then
+// nudges each toward readable contrast so a dark FACT commit never lands on a dark background (or vice versa).
+function buildEntityColors(theme) {
+  const background = theme.textBackgroundColor;
+  return {
+    EXPERIENCE: ensureReadableColor(theme.mainColor, background),
+    FACT: ensureReadableColor(mixHex(theme.mainColor, theme.textColor, 0.5), background),
+    LINK: ensureReadableColor(theme.mainColor, background),
+  };
+}
+
+const GOLDEN_ANGLE_DEGREES = 137.508;
+
+function hslToHex(hue, saturationPercent, lightnessPercent) {
+  const s = saturationPercent / 100;
+  const l = lightnessPercent / 100;
+  const c = (1 - Math.abs((2 * l) - 1)) * s;
+  const x = c * (1 - Math.abs(((hue / 60) % 2) - 1));
+  const m = l - (c / 2);
+  const [r, g, b] = hue < 60 ? [c, x, 0] : hue < 120 ? [x, c, 0] : hue < 180 ? [0, c, x] : hue < 240 ? [0, x, c] : hue < 300 ? [x, 0, c] : [c, 0, x];
+  const toHex = (channel) => Math.round((channel + m) * 255).toString(16).padStart(2, "0");
+  return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
+}
+
+function positionKey(x, y) {
+  return `${x.toFixed(2)},${y.toFixed(2)}`;
+}
+
+// Spreads each EXPERIENCE around the hue wheel by the golden angle (hue_i = i * 137.508 deg mod 360), which
+// keeps adjacent branches maximally distinguishable no matter how many EXPERIENCEs exist. FACT commits on a given
+// EXPERIENCE reuse that same hue but blend toward the theme's text color, so they read as a related, lighter
+// tint of their own branch rather than an identical or unrelated color.
+function buildExperienceColorMaps(payload, theme) {
+  const background = theme.textBackgroundColor;
+  const trunkColorByPositionKey = new Map();
+  const factColorByPositionKey = new Map();
+  payload.nodes3d.filter((node) => node.entityType === "EXPERIENCE").forEach((node, index) => {
+    const hue = (index * GOLDEN_ANGLE_DEGREES) % 360;
+    const baseColor = hslToHex(hue, 58, 42);
+    const trunkColor = ensureReadableColor(mixHex(baseColor, theme.mainColor, 0.25), background);
+    const factColor = ensureReadableColor(mixHex(baseColor, theme.textColor, 0.4), background);
+    const key = positionKey(node.x, node.y);
+    trunkColorByPositionKey.set(key, trunkColor);
+    factColorByPositionKey.set(key, factColor);
+  });
+  return { trunkColorByPositionKey, factColorByPositionKey };
+}
+
+function createTimelineLabel(text, color) {
+  const canvas = document.createElement("canvas");
+  canvas.width = 256;
+  canvas.height = 64;
+  const context = canvas.getContext("2d");
+  context.font = "28px sans-serif";
+  context.fillStyle = color;
+  context.textBaseline = "middle";
+  context.fillText(text, 4, 32);
+  const texture = new THREE.CanvasTexture(canvas);
+  const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: texture, transparent: true, depthTest: false }));
+  sprite.scale.set(3, 0.75, 1);
+  return sprite;
+}
+
+// Replaces the xy-plane grid with a single Z-axis timeline. Tick positions come directly from the FACT z
+// coordinates already computed by the selected TimeScaleMode, so the axis adapts to Linear/Logarithmic/SequentialIndex automatically.
+function createTimelineAxis(scene, payload, factDatesById, color) {
+  const disposables = [];
+  const factNodes = payload.nodes3d.filter((node) => node.entityType === "FACT");
+  if (factNodes.length === 0) return disposables;
+
+  const axisX = -12;
+  const axisY = 0;
+  const maxZ = Math.max(...factNodes.map((node) => node.z));
+  const axisGeometry = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(axisX, axisY, 0), new THREE.Vector3(axisX, axisY, maxZ)]);
+  const axisMaterial = new THREE.LineBasicMaterial({ color });
+  const axisLine = new THREE.Line(axisGeometry, axisMaterial);
+  scene.add(axisLine);
+  disposables.push(axisLine);
+
+  const tickZValues = [...new Set(factNodes.map((node) => node.z))].sort((left, right) => left - right);
+  tickZValues.forEach((z, index) => {
+    const tickGeometry = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(axisX - 0.4, axisY, z), new THREE.Vector3(axisX + 0.4, axisY, z)]);
+    const tickMaterial = new THREE.LineBasicMaterial({ color });
+    const tick = new THREE.Line(tickGeometry, tickMaterial);
+    scene.add(tick);
+    disposables.push(tick);
+
+    const factAtZ = factNodes.find((node) => node.z === z);
+    const label = factDatesById?.get(factAtZ?.id) || `#${index + 1}`;
+    const sprite = createTimelineLabel(label, color);
+    sprite.position.set(axisX - 2.2, axisY, z);
+    scene.add(sprite);
+    disposables.push(sprite);
+  });
+
+  return disposables;
+}
+
+export function createCommitGraph(container, payload, theme, onSelect, onHover, factDatesById, initialViewState) {
+  const width = Math.max(container.clientWidth, 320);
+  const height = Math.max(container.clientHeight, 360);
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color(theme.textBackgroundColor);
+  const entityColors = buildEntityColors(theme);
+  const { trunkColorByPositionKey, factColorByPositionKey } = buildExperienceColorMaps(payload, theme);
+
+  const camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 1000);
+  if (initialViewState?.position) { camera.position.copy(initialViewState.position); } else { camera.position.set(13, 11, 20); }
+  if (initialViewState?.quaternion) { camera.quaternion.copy(initialViewState.quaternion); } else { camera.lookAt(0, 0, 5); }
+
+  const renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  renderer.setSize(width, height);
+  container.appendChild(renderer.domElement);
+  renderer.domElement.style.touchAction = "none";
+
+  const controls = new OrbitControls(camera, renderer.domElement);
+  if (initialViewState?.target) { controls.target.copy(initialViewState.target); } else { controls.target.set(0, 0, 5); }
+  controls.enableDamping = false;
+  controls.enablePan = true;
+  controls.minDistance = 4;
+  controls.maxDistance = 80;
+  controls.update();
+
+  scene.add(new THREE.AmbientLight(theme.textColor, 1.5));
+  const keyLight = new THREE.DirectionalLight(theme.mainColor, 2);
+  keyLight.position.set(8, 12, 10);
+  scene.add(keyLight);
+
+  const timelineAxisObjects = createTimelineAxis(scene, payload, factDatesById, entityColors.FACT);
+
+  const nodeById = new Map(payload.nodes3d.map((node) => [node.id, node]));
+  const experienceIdByPositionKey = new Map(payload.nodes3d
+    .filter((node) => node.entityType === "EXPERIENCE")
+    .map((node) => [positionKey(node.x, node.y), node.id]));
+  const timelineLines = [];
+  const lineMeshes = [];
+  const experienceMeshesById = new Map();
+  const factMeshesById = new Map();
+  const highlightColor = ensureReadableColor(theme.textColor, theme.textBackgroundColor);
+  // BRANCH_OUT lands on the child EXPERIENCE (`to`); BRANCH_MERGE departs from it (`from`); everything else uses `to`.
+  const resolveLineColor = (line) => {
+    if (line.lineType === "LINK") return entityColors.LINK;
+    const endpoint = line.lineType === "BRANCH_MERGE" ? line.from : line.to;
+    return trunkColorByPositionKey.get(positionKey(endpoint[0], endpoint[1])) || entityColors.EXPERIENCE;
+  };
+  payload.lines3d.forEach((line) => {
+    const from = new THREE.Vector3(...line.from);
+    const to = new THREE.Vector3(...line.to);
+    const points = line.controlPoints?.length
+      ? new THREE.QuadraticBezierCurve3(from, new THREE.Vector3(...line.controlPoints[0]), to).getPoints(24)
+      : [from, to];
+    const color = resolveLineColor(line);
+    const isExperienceLine = line.lineType !== "LINK";
+    const curve = new THREE.CatmullRomCurve3(points);
+    const geometry = isExperienceLine
+      ? new THREE.TubeGeometry(curve, Math.max(points.length - 1, 1), 0.075, 8, false)
+      : new THREE.BufferGeometry().setFromPoints(points);
+    const material = isExperienceLine
+      ? new THREE.MeshStandardMaterial({ color, roughness: 0.4, metalness: 0.1 })
+      : new THREE.LineBasicMaterial({ color });
+    const mesh = isExperienceLine ? new THREE.Mesh(geometry, material) : new THREE.Line(geometry, material);
+    const nodeId = line.lineType === "BRANCH" ? line.id.replace("branch-", "") : null;
+    const node = nodeId ? nodeById.get(nodeId) : null;
+    mesh.userData = { ...node, baseColor: color, baseOpacity: 1 };
+    if (node) {
+      timelineLines.push(mesh);
+      experienceMeshesById.set(node.id, mesh);
+    }
+    lineMeshes.push(mesh);
+    scene.add(mesh);
+  });
+
+  const nodes = payload.nodes3d.filter((node) => node.entityType === "FACT").map((node) => {
+    const geometry = new THREE.BoxGeometry(0.62, 0.62, 0.62);
+    const color = factColorByPositionKey.get(positionKey(node.x, node.y)) || entityColors.FACT;
+    const opacity = node.isDirectFact ? 1 : 0.32;
+    const material = new THREE.MeshStandardMaterial({ color, roughness: 0.45, metalness: 0.15, transparent: true, opacity, depthWrite: node.isDirectFact });
+    const mesh = new THREE.Mesh(geometry, material);
+    mesh.position.set(node.x, node.y, node.z);
+    mesh.userData = { ...node, baseColor: color, baseOpacity: opacity };
+    const meshes = factMeshesById.get(node.id) || [];
+    meshes.push(mesh);
+    factMeshesById.set(node.id, meshes);
+    scene.add(mesh);
+    return mesh;
+  });
+
+  const setHighlight = (node) => {
+    const highlightedIds = new Set(node ? [node.id, ...(node.linkedEntityIds || []), ...(node.parentExperienceIds || [])] : []);
+    if (node?.entityType === "FACT") {
+      const experienceId = experienceIdByPositionKey.get(positionKey(node.x, node.y));
+      if (experienceId) highlightedIds.add(experienceId);
+    }
+    experienceMeshesById.forEach((mesh, id) => {
+      mesh.material.color.set(highlightedIds.has(id) ? highlightColor : mesh.userData.baseColor);
+    });
+    factMeshesById.forEach((meshes, id) => {
+      meshes.forEach((mesh) => {
+        const highlighted = highlightedIds.has(id);
+        mesh.material.color.set(highlighted ? highlightColor : mesh.userData.baseColor);
+        mesh.material.opacity = highlighted ? 1 : mesh.userData.baseOpacity;
+      });
+    });
+    renderer.render(scene, camera);
+  };
+
+  const raycaster = new THREE.Raycaster();
+  raycaster.params.Line.threshold = 0.3;
+  const pointer = new THREE.Vector2();
+  let lastHoverAt = 0;
+  const pointerPosition = (event) => {
+    const rect = renderer.domElement.getBoundingClientRect();
+    pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+    pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+  };
+  const intersectEntity = (event) => {
+    pointerPosition(event);
+    raycaster.setFromCamera(pointer, camera);
+    return raycaster.intersectObjects([...nodes, ...timelineLines])[0]?.object.userData;
+  };
+  const handleMove = (event) => {
+    if (performance.now() - lastHoverAt < 100) return;
+    lastHoverAt = performance.now();
+    const node = intersectEntity(event) || null;
+    setHighlight(node);
+    onHover(node, event);
+  };
+  const handleClick = (event) => {
+    const node = intersectEntity(event);
+    if (node) onSelect(node);
+  };
+  renderer.domElement.addEventListener("pointermove", handleMove);
+  renderer.domElement.addEventListener("click", handleClick);
+
+  const resize = () => {
+    const nextWidth = Math.max(container.clientWidth, 320);
+    const nextHeight = Math.max(container.clientHeight, 360);
+    camera.aspect = nextWidth / nextHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(nextWidth, nextHeight);
+    renderer.render(scene, camera);
+  };
+  window.addEventListener("resize", resize);
+  controls.addEventListener("change", () => renderer.render(scene, camera));
+  renderer.render(scene, camera);
+
+  const disposeFn = () => {
+    window.removeEventListener("resize", resize);
+    renderer.domElement.removeEventListener("pointermove", handleMove);
+    renderer.domElement.removeEventListener("click", handleClick);
+    controls.dispose();
+    nodes.forEach((node) => { node.geometry.dispose(); node.material.dispose(); });
+    lineMeshes.forEach((line) => { line.geometry.dispose(); line.material.dispose(); });
+    timelineAxisObjects.forEach((object) => {
+      object.geometry?.dispose();
+      object.material?.map?.dispose();
+      object.material?.dispose();
+    });
+    renderer.dispose();
+    if (renderer.domElement.parentNode === container) {
+      container.removeChild(renderer.domElement);
+    }
+  };
+  disposeFn.getViewState = () => ({
+    position: camera.position.clone(),
+    quaternion: camera.quaternion.clone(),
+    target: controls.target.clone(),
+  });
+  return disposeFn;
+}
