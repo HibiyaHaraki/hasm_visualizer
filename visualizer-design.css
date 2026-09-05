@@ -59,9 +59,3 @@
   color: var(--theme-textbackground);
 }
 
-/* 2D mode: the SVG graph is larger than the stage, so the canvas scrolls instead of orbiting. */
-.graph-canvas.HasmVisualizer_Canvas2D {
-  overflow: auto;
-  touch-action: pan-x pan-y;
-}
-

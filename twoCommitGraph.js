@@ -1,3 +1,5 @@
+import * as THREE from "three";
+import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import {
   buildEntityColors,
   buildExperienceColorMaps,
@@ -5,29 +7,45 @@ import {
   positionKey,
 } from "./threeCommitGraph.js";
 
-// Git-Extensions-style 2D commit graph: EXPERIENCEs become vertical branch lanes,
-// FACTs become commit dots on a top-to-bottom timeline (newest at the top), and
-// BRANCH_OUT/BRANCH_MERGE lines become curved connectors between lanes.
-// Colors are computed with the exact same helpers as the 3D renderer, so FACT and
+// Git-Extensions-style 2D commit graph rendered with Three.js: an orthographic camera looks straight
+// at the XY plane, EXPERIENCEs become vertical branch lanes, FACTs become commit dots on a
+// top-to-bottom timeline (newest at the top), and BRANCH_OUT/BRANCH_MERGE lines become curved
+// connectors between lanes. Colors come from the exact same helpers as the 3D renderer, so FACT and
 // EXPERIENCE colors are identical between 2D and 3D modes.
 
-const SVG_NS = "http://www.w3.org/2000/svg";
-const LANE_WIDTH = 110;
-const ROW_HEIGHT = 30;
-const TOP_PADDING = 48;
-const BOTTOM_PADDING = 96;
-const LEFT_PADDING = 40;
-const LABEL_WIDTH = 280;
-const FACT_RADIUS = 7;
-const BRANCH_STROKE_WIDTH = 4;
+const LANE_GAP = 3;
+const ROW_GAP = 2.2;
+const FACT_RADIUS = 0.28;
+const BRANCH_RADIUS = 0.09;
+const LABEL_HEIGHT = 0.55;
+const LABEL_GAP = 0.35;
+const LABEL_SPACE_RIGHT = 10; // world units reserved on the right for commit message sprites
 
-function createSvgElement(tagName, attributes = {}) {
-  const element = document.createElementNS(SVG_NS, tagName);
-  Object.entries(attributes).forEach(([name, value]) => element.setAttribute(name, String(value)));
-  return element;
+function createTextSprite(text, color) {
+  const font = "42px sans-serif";
+  const measureContext = document.createElement("canvas").getContext("2d");
+  measureContext.font = font;
+  const textWidth = Math.ceil(measureContext.measureText(text).width);
+  const canvas = document.createElement("canvas");
+  canvas.width = textWidth + 24;
+  canvas.height = 64;
+  const context = canvas.getContext("2d");
+  context.font = font;
+  context.fillStyle = color;
+  context.textBaseline = "middle";
+  context.fillText(text, 12, 34);
+  const texture = new THREE.CanvasTexture(canvas);
+  const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: texture, transparent: true, depthTest: false }));
+  sprite.scale.set((canvas.width / canvas.height) * LABEL_HEIGHT, LABEL_HEIGHT, 1);
+  sprite.center.set(0, 0.5); // left-align so the label starts exactly at its position
+  return sprite;
 }
 
 export function createCommitGraph2D(container, payload, theme, onSelect, onHover, factDatesById, initialViewState) {
+  const width = Math.max(container.clientWidth, 320);
+  const height = Math.max(container.clientHeight, 360);
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color(theme.textBackgroundColor);
   const entityColors = buildEntityColors(theme);
   const { trunkColorByPositionKey, factColorByPositionKey } = buildExperienceColorMaps(payload, theme);
   const textColor = ensureReadableColor(theme.textColor, theme.textBackgroundColor);
@@ -53,23 +71,62 @@ export function createCommitGraph2D(container, payload, theme, onSelect, onHover
     .map((node) => [positionKey(node.x, node.y), node.id]));
 
   const maxZ = Math.max(1, ...payload.nodes3d.map((node) => node.z));
-  const laneX = (key) => LEFT_PADDING + (laneIndexByKey.get(key) ?? 0) * LANE_WIDTH;
-  const zToY = (z) => TOP_PADDING + (maxZ - z) * ROW_HEIGHT; // newest commits at the top
+  const laneX = (key) => (laneIndexByKey.get(key) ?? 0) * LANE_GAP;
+  const zToY = (z) => (maxZ - z) * ROW_GAP; // newest commits at the top
+  const to2d = (point) => new THREE.Vector3(laneX(positionKey(point[0], point[1])), zToY(point[2]), 0);
 
-  const width = LEFT_PADDING + Math.max(1, laneIndexByKey.size) * LANE_WIDTH + LABEL_WIDTH;
-  const height = TOP_PADDING + maxZ * ROW_HEIGHT + BOTTOM_PADDING;
+  const graphWidth = Math.max(1, laneIndexByKey.size - 1) * LANE_GAP;
+  const graphHeight = maxZ * ROW_GAP;
+  const centerX = graphWidth / 2;
+  const centerY = graphHeight / 2;
 
-  container.style.overflow = "auto";
-  const svg = createSvgElement("svg", {
-    width,
-    height,
-    viewBox: `0 0 ${width} ${height}`,
-    role: "img",
-    "aria-label": "2D Commit Graph",
-  });
-  svg.style.display = "block";
-  svg.style.background = theme.textBackgroundColor;
-  container.appendChild(svg);
+  // Orthographic frustum sized so the whole graph fits on first load.
+  const aspect = width / height;
+  const margin = 3;
+  const viewHeight = Math.max(graphHeight + margin * 2, (graphWidth + LABEL_SPACE_RIGHT + margin * 2) / aspect, 6);
+  const camera = new THREE.OrthographicCamera(
+    (-viewHeight * aspect) / 2, (viewHeight * aspect) / 2, viewHeight / 2, -viewHeight / 2, 0.1, 1000
+  );
+  // Only restore view state that was captured by a previous, healthy 2D session; a 3D perspective
+  // view state (or one missing fields) is incompatible and intentionally ignored.
+  const has2DViewState = Boolean(
+    initialViewState &&
+    typeof initialViewState.zoom === "number" && Number.isFinite(initialViewState.zoom) &&
+    initialViewState.position && Number.isFinite(initialViewState.position.x) && Number.isFinite(initialViewState.position.y) &&
+    initialViewState.target && Number.isFinite(initialViewState.target.x) && Number.isFinite(initialViewState.target.y)
+  );
+  camera.position.set(has2DViewState ? initialViewState.position.x : centerX, has2DViewState ? initialViewState.position.y : centerY, 50);
+  if (has2DViewState) {
+    camera.zoom = initialViewState.zoom;
+    camera.updateProjectionMatrix();
+  }
+
+  const renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  renderer.setSize(width, height);
+  container.appendChild(renderer.domElement);
+  renderer.domElement.style.touchAction = "none";
+
+  const controls = new OrbitControls(camera, renderer.domElement);
+  controls.enableRotate = false; // pan/zoom only: this view stays flat like a git commit graph
+  controls.screenSpacePanning = true;
+  controls.mouseButtons = { LEFT: THREE.MOUSE.PAN, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.PAN };
+  controls.touches = { ONE: THREE.TOUCH.PAN, TWO: THREE.TOUCH.DOLLY_PAN };
+  controls.minZoom = 0.2;
+  controls.maxZoom = 8;
+  if (has2DViewState) {
+    controls.target.set(initialViewState.target.x, initialViewState.target.y, 0);
+  } else {
+    controls.target.set(centerX, centerY, 0);
+  }
+  controls.update();
+
+  const disposables = [];
+  const track = (object) => {
+    disposables.push(object);
+    scene.add(object);
+    return object;
+  };
 
   // Same color resolution rule as the 3D renderer: BRANCH_OUT lands on the child EXPERIENCE (`to`);
   // BRANCH_MERGE departs from it (`from`); LINK uses the shared link accent.
@@ -79,75 +136,66 @@ export function createCommitGraph2D(container, payload, theme, onSelect, onHover
     return trunkColorByPositionKey.get(positionKey(endpoint[0], endpoint[1])) || entityColors.EXPERIENCE;
   };
 
-  const lineElements = [];
-  const factCircleById = new Map();
-  const branchElementsByExperienceId = new Map();
-  const interactiveTargets = [];
+  const nodeById = new Map(payload.nodes3d.map((node) => [node.id, node]));
+  const branchMeshes = [];
+  const factMeshes = [];
+  const experienceMeshesById = new Map();
+  const factMeshesById = new Map();
+  const tipByExperienceId = new Map();
 
   payload.lines3d.forEach((line) => {
     const color = resolveLineColor(line);
-    const fromX = laneX(positionKey(line.from[0], line.from[1]));
-    const fromY = zToY(line.from[2]);
-    const toX = laneX(positionKey(line.to[0], line.to[1]));
-    const toY = zToY(line.to[2]);
-    let element;
+    const from = to2d(line.from);
+    const to = to2d(line.to);
+    let mesh;
     if (line.lineType === "LINK") {
-      element = createSvgElement("line", {
-        x1: fromX, y1: fromY, x2: toX, y2: toY,
-        stroke: color, "stroke-width": 1.5, "stroke-dasharray": "5 4", opacity: 0.7,
-      });
-    } else if (line.lineType === "BRANCH") {
-      element = createSvgElement("line", {
-        x1: fromX, y1: fromY, x2: toX, y2: toY,
-        stroke: color, "stroke-width": BRANCH_STROKE_WIDTH, "stroke-linecap": "round",
-      });
+      const geometry = new THREE.BufferGeometry().setFromPoints([from, to]);
+      const material = new THREE.LineDashedMaterial({ color, dashSize: 0.25, gapSize: 0.18, transparent: true, opacity: 0.7 });
+      mesh = new THREE.Line(geometry, material);
+      mesh.computeLineDistances();
     } else {
-      // BRANCH_OUT / BRANCH_MERGE: quadratic curve, control nudged perpendicular like the 3D midpoint control.
-      const controlX = (fromX + toX) / 2 - (toY - fromY) * 0.18;
-      const controlY = (fromY + toY) / 2 + (toX - fromX) * 0.18;
-      element = createSvgElement("path", {
-        d: `M ${fromX} ${fromY} Q ${controlX} ${controlY} ${toX} ${toY}`,
-        fill: "none", stroke: color, "stroke-width": BRANCH_STROKE_WIDTH, "stroke-linecap": "round",
-      });
+      const points = line.controlPoints?.length
+        ? new THREE.QuadraticBezierCurve3(
+            from,
+            // Flat variant of the 3D midpoint control, nudged perpendicular to the connector.
+            new THREE.Vector3(
+              (from.x + to.x) / 2 - (to.y - from.y) * 0.18,
+              (from.y + to.y) / 2 + (to.x - from.x) * 0.18,
+              0
+            ),
+            to
+          ).getPoints(24)
+        : [from, to];
+      const curve = new THREE.CatmullRomCurve3(points);
+      const geometry = new THREE.TubeGeometry(curve, Math.max(points.length - 1, 1), BRANCH_RADIUS, 8, false);
+      mesh = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial({ color }));
     }
-    svg.appendChild(element);
-    lineElements.push(element);
-
+    track(mesh);
     if (line.lineType === "BRANCH") {
       const experienceId = line.id.replace("branch-", "");
-      const elements = branchElementsByExperienceId.get(experienceId) || [];
-      elements.push(element);
-      branchElementsByExperienceId.set(experienceId, elements);
-      element.dataset.baseColor = color;
+      mesh.userData = { ...nodeById.get(experienceId), baseColor: color };
+      const meshes = experienceMeshesById.get(experienceId) || [];
+      meshes.push(mesh);
+      experienceMeshesById.set(experienceId, meshes);
+      branchMeshes.push(mesh);
+      tipByExperienceId.set(experienceId, to); // `to` is the newest (top-most) end of the branch
     }
   });
 
-  // EXPERIENCE label chips at the bottom of each lane (like branch labels in git commit graphs).
+  // EXPERIENCE lane labels next to each branch tip, like branch tags in a git commit graph.
   payload.nodes3d
     .filter((node) => node.entityType === "EXPERIENCE")
     .forEach((node) => {
       const key = positionKey(node.x, node.y);
       const trunkColor = trunkColorByPositionKey.get(key) || entityColors.EXPERIENCE;
-      const chipTextColor = ensureReadableColor(theme.textColor, trunkColor);
-      const centerX = laneX(key);
-      const centerY = zToY(0) + 44;
-      const chipWidth = Math.max(64, node.label.length * 7 + 20);
-      const chip = createSvgElement("rect", {
-        x: centerX - chipWidth / 2, y: centerY - 13, width: chipWidth, height: 26, rx: 8,
-        fill: trunkColor, stroke: "none",
-      });
-      const label = createSvgElement("text", {
-        x: centerX, y: centerY + 4, "text-anchor": "middle",
-        "font-size": 12, "font-weight": 700, fill: chipTextColor, "pointer-events": "none",
-      });
-      label.textContent = node.label;
-      svg.appendChild(chip);
-      svg.appendChild(label);
-      chip.dataset.baseColor = trunkColor;
-      const elements = branchElementsByExperienceId.get(node.id) || [];
-      elements.push(chip);
-      branchElementsByExperienceId.set(node.id, elements);
-      interactiveTargets.push({ element: chip, node });
+      const tip = tipByExperienceId.get(node.id);
+      const sprite = createTextSprite(node.label, trunkColor);
+      sprite.position.set(
+        (tip?.x ?? laneX(key)) + FACT_RADIUS + LABEL_GAP,
+        (tip?.y ?? zToY(0)) + LABEL_HEIGHT,
+        0
+      );
+      track(sprite);
     });
 
   // FACT commit dots with a commit-message label, mirroring a git commit graph row.
@@ -157,28 +205,29 @@ export function createCommitGraph2D(container, payload, theme, onSelect, onHover
       const key = positionKey(node.x, node.y);
       const color = factColorByPositionKey.get(key) || entityColors.FACT;
       const opacity = node.isDirectFact ? 1 : 0.32;
-      const centerX = laneX(key);
-      const centerY = zToY(node.z);
-      const circle = createSvgElement("circle", {
-        cx: centerX, cy: centerY, r: FACT_RADIUS,
-        fill: color, opacity, stroke: theme.textBackgroundColor, "stroke-width": 1.5,
-      });
-      circle.style.cursor = "pointer";
-      const label = createSvgElement("text", {
-        x: centerX + FACT_RADIUS + 8, y: centerY + 4,
-        "font-size": 12, fill: textColor, opacity, "pointer-events": "none",
-      });
-      const dateLabel = factDatesById?.get(node.id);
-      label.textContent = dateLabel ? `${node.label} — ${dateLabel}` : node.label;
-      svg.appendChild(circle);
-      svg.appendChild(label);
-      circle.dataset.baseColor = color;
-      circle.dataset.baseOpacity = String(opacity);
-      label.dataset.baseOpacity = String(opacity);
-      const circles = factCircleById.get(node.id) || [];
-      circles.push({ circle, label });
-      factCircleById.set(node.id, circles);
-      interactiveTargets.push({ element: circle, node });
+      const center = to2d([node.x, node.y, node.z]);
+      const mesh = new THREE.Mesh(
+        new THREE.CircleGeometry(FACT_RADIUS, 32),
+        new THREE.MeshBasicMaterial({ color, transparent: true, opacity })
+      );
+      mesh.position.copy(center);
+      mesh.userData = { ...node, baseColor: color, baseOpacity: opacity };
+      track(mesh);
+      factMeshes.push(mesh);
+
+      const firstForId = !factMeshesById.has(node.id);
+      const meshes = factMeshesById.get(node.id) || [];
+      meshes.push(mesh);
+      factMeshesById.set(node.id, meshes);
+
+      // The layout emits one FACT node per visible lane; label only the first so text doesn't duplicate.
+      if (firstForId) {
+        const dateLabel = factDatesById?.get(node.id);
+        const sprite = createTextSprite(dateLabel ? `${node.label} — ${dateLabel}` : node.label, textColor);
+        sprite.material.opacity = opacity;
+        sprite.position.set(center.x + FACT_RADIUS + LABEL_GAP, center.y, 0);
+        track(sprite);
+      }
     });
 
   // Highlight hovered node plus its linked entities / parent EXPERIENCEs (same rule as 3D).
@@ -188,51 +237,78 @@ export function createCommitGraph2D(container, payload, theme, onSelect, onHover
       const experienceId = experienceIdByPositionKey.get(positionKey(node.x, node.y));
       if (experienceId) highlightedIds.add(experienceId);
     }
-    branchElementsByExperienceId.forEach((elements, id) => {
-      elements.forEach((element) => {
+    experienceMeshesById.forEach((meshes, id) => {
+      meshes.forEach((mesh) => mesh.material.color.set(highlightedIds.has(id) ? highlightColor : mesh.userData.baseColor));
+    });
+    factMeshesById.forEach((meshes, id) => {
+      meshes.forEach((mesh) => {
         const highlighted = highlightedIds.has(id);
-        element.setAttribute("fill", highlighted ? highlightColor : element.dataset.baseColor);
-        if (element.tagName !== "rect") {
-          element.setAttribute("stroke", highlighted ? highlightColor : element.dataset.baseColor);
-        }
+        mesh.material.color.set(highlighted ? highlightColor : mesh.userData.baseColor);
+        mesh.material.opacity = highlighted ? 1 : mesh.userData.baseOpacity;
       });
     });
-    factCircleById.forEach((entries, id) => {
-      entries.forEach(({ circle, label }) => {
-        const highlighted = highlightedIds.has(id);
-        circle.setAttribute("fill", highlighted ? highlightColor : circle.dataset.baseColor);
-        circle.setAttribute("opacity", highlighted ? "1" : circle.dataset.baseOpacity);
-        label.setAttribute("opacity", highlighted ? "1" : label.dataset.baseOpacity);
-      });
-    });
+    renderer.render(scene, camera);
   };
 
-  interactiveTargets.forEach(({ element, node }) => {
-    element.addEventListener("pointerenter", (event) => {
-      setHighlight(node);
-      onHover?.(node, event);
-    });
-    element.addEventListener("pointerleave", (event) => {
-      setHighlight(null);
-      onHover?.(null, event);
-    });
-    element.addEventListener("click", () => onSelect?.(node));
-  });
+  const raycaster = new THREE.Raycaster();
+  const pointer = new THREE.Vector2();
+  let lastHoverAt = 0;
+  const intersectEntity = (event) => {
+    const rect = renderer.domElement.getBoundingClientRect();
+    pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+    pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+    raycaster.setFromCamera(pointer, camera);
+    return raycaster.intersectObjects([...factMeshes, ...branchMeshes])[0]?.object.userData;
+  };
+  const handleMove = (event) => {
+    if (performance.now() - lastHoverAt < 100) return;
+    lastHoverAt = performance.now();
+    const node = intersectEntity(event) || null;
+    setHighlight(node);
+    onHover?.(node, event);
+  };
+  const handleClick = (event) => {
+    const node = intersectEntity(event);
+    if (node) onSelect?.(node);
+  };
+  renderer.domElement.addEventListener("pointermove", handleMove);
+  renderer.domElement.addEventListener("click", handleClick);
 
-  if (initialViewState && typeof initialViewState.scrollTop === "number") {
-    container.scrollLeft = initialViewState.scrollLeft || 0;
-    container.scrollTop = initialViewState.scrollTop || 0;
-  }
+  const resize = () => {
+    const nextWidth = Math.max(container.clientWidth, 320);
+    const nextHeight = Math.max(container.clientHeight, 360);
+    const nextAspect = nextWidth / nextHeight;
+    camera.left = (-viewHeight * nextAspect) / 2;
+    camera.right = (viewHeight * nextAspect) / 2;
+    camera.top = viewHeight / 2;
+    camera.bottom = -viewHeight / 2;
+    camera.updateProjectionMatrix();
+    renderer.setSize(nextWidth, nextHeight);
+    renderer.render(scene, camera);
+  };
+  window.addEventListener("resize", resize);
+  controls.addEventListener("change", () => renderer.render(scene, camera));
+  renderer.render(scene, camera);
 
   const disposeFn = () => {
-    if (svg.parentNode === container) {
-      container.removeChild(svg);
+    window.removeEventListener("resize", resize);
+    renderer.domElement.removeEventListener("pointermove", handleMove);
+    renderer.domElement.removeEventListener("click", handleClick);
+    controls.dispose();
+    disposables.forEach((object) => {
+      object.geometry?.dispose();
+      object.material?.map?.dispose();
+      object.material?.dispose();
+    });
+    renderer.dispose();
+    if (renderer.domElement.parentNode === container) {
+      container.removeChild(renderer.domElement);
     }
-    container.style.overflow = "";
   };
   disposeFn.getViewState = () => ({
-    scrollLeft: container.scrollLeft,
-    scrollTop: container.scrollTop,
+    position: camera.position.clone(),
+    zoom: camera.zoom,
+    target: controls.target.clone(),
   });
   return disposeFn;
 }

@@ -151,8 +151,14 @@ export function createCommitGraph(container, payload, theme, onSelect, onHover, 
   const { trunkColorByPositionKey, factColorByPositionKey } = buildExperienceColorMaps(payload, theme);
 
   const camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 1000);
-  if (initialViewState?.position) { camera.position.copy(initialViewState.position); } else { camera.position.set(13, 11, 20); }
-  if (initialViewState?.quaternion) { camera.quaternion.copy(initialViewState.quaternion); } else { camera.lookAt(0, 0, 5); }
+  const restore3D = initialViewState && initialViewState.position && initialViewState.quaternion;
+  if (restore3D) {
+    camera.position.copy(initialViewState.position);
+    camera.quaternion.copy(initialViewState.quaternion);
+  } else {
+    camera.position.set(13, 11, 20);
+    camera.lookAt(0, 0, 5);
+  }
 
   const renderer = new THREE.WebGLRenderer({ antialias: true });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -161,7 +167,7 @@ export function createCommitGraph(container, payload, theme, onSelect, onHover, 
   renderer.domElement.style.touchAction = "none";
 
   const controls = new OrbitControls(camera, renderer.domElement);
-  if (initialViewState?.target) { controls.target.copy(initialViewState.target); } else { controls.target.set(0, 0, 5); }
+  if (restore3D && initialViewState.target) { controls.target.copy(initialViewState.target); } else { controls.target.set(0, 0, 5); }
   controls.enableDamping = false;
   controls.enablePan = true;
   controls.minDistance = 4;

@@ -16,7 +16,10 @@ const logger = createLogger('hasm-3d-visualizer');
 export function HasmVisualizerComponent({ colorPattern = 'classic', labels }) {
   const sceneRef = useRef(null);
   const disposeSceneRef = useRef(() => {});
-  const viewStateRef = useRef(null);
+  // Camera/view state is kept per view mode: 2D (orthographic zoom) and 3D (perspective
+  // position/quaternion) states are incompatible, so each mode restores only its own state.
+  const viewStateByModeRef = useRef({});
+  const lastModeRef = useRef('3d');
 
   const [selectedModelIndex, setSelectedModelIndex] = useState(0);
   const [filter, setFilter] = useState(DEFAULT_LAYOUT_FILTER);
@@ -42,16 +45,27 @@ export function HasmVisualizerComponent({ colorPattern = 'classic', labels }) {
     // Get theme color palette
     const themeColors = getPatternById(colorPattern).colors;
 
-    // Capture previous camera view position/target before cleanup
+    // Capture previous camera view state before cleanup, keyed by the mode that created it.
+    // Only keep complete states: a state captured from a broken/disposed graph must never be restored.
     if (typeof disposeSceneRef.current?.getViewState === 'function') {
-      viewStateRef.current = disposeSceneRef.current.getViewState();
+      const captured = disposeSceneRef.current.getViewState();
+      const isComplete2D = lastModeRef.current === '2d'
+        && Number.isFinite(captured?.zoom)
+        && Number.isFinite(captured?.position?.x) && Number.isFinite(captured?.position?.y)
+        && Number.isFinite(captured?.target?.x) && Number.isFinite(captured?.target?.y);
+      const isComplete3D = lastModeRef.current === '3d'
+        && captured?.position && captured?.quaternion && captured?.target;
+      if (isComplete2D || isComplete3D) {
+        viewStateByModeRef.current[lastModeRef.current] = captured;
+      }
     }
 
     // Clean up previous graph instance
     disposeSceneRef.current();
+    lastModeRef.current = viewMode;
 
-    // Instantiate the graph via the 3D (Three.js) or 2D (SVG) engine; both share the same
-    // layout payload and color derivation, so FACT/EXPERIENCE colors match across modes.
+    // Instantiate the graph via the 3D or 2D Three.js engine; both share the same layout
+    // payload and color derivation, so FACT/EXPERIENCE colors match across modes.
     const createGraph = viewMode === '2d' ? createCommitGraph2D : createCommitGraph;
     disposeSceneRef.current = createGraph(
       sceneRef.current,
@@ -69,12 +83,18 @@ export function HasmVisualizerComponent({ colorPattern = 'classic', labels }) {
         }
       },
       undefined,
-      viewStateRef.current
+      viewStateByModeRef.current[viewMode]
     );
 
     return () => {
       if (typeof disposeSceneRef.current?.getViewState === 'function') {
-        viewStateRef.current = disposeSceneRef.current.getViewState();
+        const captured = disposeSceneRef.current.getViewState();
+        const isComplete = viewMode === '2d'
+          ? Number.isFinite(captured?.zoom) && captured?.position && captured?.target
+          : Boolean(captured?.position && captured?.quaternion && captured?.target);
+        if (isComplete) {
+          viewStateByModeRef.current[viewMode] = captured;
+        }
       }
       disposeSceneRef.current();
     };
@@ -92,7 +112,7 @@ export function HasmVisualizerComponent({ colorPattern = 'classic', labels }) {
               className="HasmVisualizer_Select"
               value={selectedModelIndex}
               onChange={(e) => {
-                viewStateRef.current = null;
+                viewStateByModeRef.current = {};
                 setSelectedModelIndex(Number(e.target.value));
                 setSelectedNode(null);
               }}
@@ -160,12 +180,9 @@ export function HasmVisualizerComponent({ colorPattern = 'classic', labels }) {
         </div>
       </div>
 
-      {/* GRAPH STAGE (2D SVG or 3D WebGL) */}
+      {/* GRAPH STAGE (2D or 3D, both rendered with Three.js) */}
       <div className="graph-stage HasmVisualizer_Stage" aria-label={viewMode === '2d' ? '2D Commit Graph' : '3D Commit Graph'}>
-        <div
-          className={`graph-canvas HasmVisualizer_Canvas${viewMode === '2d' ? ' HasmVisualizer_Canvas2D' : ''}`}
-          ref={sceneRef}
-        />
+        <div className="graph-canvas HasmVisualizer_Canvas" ref={sceneRef} />
 
         {hoveredNode && (
           <div
@@ -193,7 +210,7 @@ export function HasmVisualizerComponent({ colorPattern = 'classic', labels }) {
         </div>
         <div style={{ marginLeft: 'auto', color: 'var(--theme-muted)', fontSize: '0.75rem', fontWeight: 'normal' }}>
           {viewMode === '2d'
-            ? '💡 Scroll to explore, click node to inspect'
+            ? '💡 Drag to pan, scroll to zoom, click node to inspect'
             : '💡 Drag to rotate, scroll to zoom, click node to inspect'}
         </div>
       </div>
