@@ -59,3 +59,66 @@
   color: var(--theme-textbackground);
 }
 
+/* 2D mode: split layout — commit graph on the left, FACT table on the right.
+   The width split is set inline from the number of parallel EXPERIENCE lanes. */
+.HasmVisualizer_Container .HasmVisualizer_Split2D {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  min-height: 0;
+}
+.HasmVisualizer_Container .HasmVisualizer_GraphPane2D {
+  position: relative;
+  inset: auto;
+  height: 100%;
+  min-width: 0;
+}
+.HasmVisualizer_Container .HasmVisualizer_FactTablePane {
+  height: 100%;
+  overflow: auto;
+  border-left: 1px solid var(--theme-border);
+  background: var(--theme-soft);
+}
+.HasmVisualizer_Container .HasmVisualizer_FactTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8rem;
+}
+.HasmVisualizer_Container .HasmVisualizer_FactTable th {
+  position: sticky;
+  top: 0;
+  text-align: left;
+  padding: 8px 10px;
+  background: var(--theme-soft);
+  border-bottom: 1px solid var(--theme-border);
+  color: var(--theme-muted);
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.HasmVisualizer_Container .HasmVisualizer_FactTable td {
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--theme-border);
+  color: var(--theme-text);
+  vertical-align: middle;
+}
+.HasmVisualizer_Container .HasmVisualizer_FactTable tbody tr {
+  cursor: pointer;
+}
+.HasmVisualizer_Container .HasmVisualizer_FactTable tbody tr:hover td,
+.HasmVisualizer_Container .HasmVisualizer_FactTable tbody tr.is-active td {
+  background: var(--theme-surface);
+}
+.HasmVisualizer_Container .HasmVisualizer_FactDot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  margin-right: 8px;
+  vertical-align: middle;
+}
+.HasmVisualizer_Container .HasmVisualizer_FactTable td:last-child {
+  white-space: nowrap;
+  color: var(--theme-muted);
+}
+

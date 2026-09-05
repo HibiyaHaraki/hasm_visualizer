@@ -1,6 +1,7 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { createCommitGraph } from './threeCommitGraph.js';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { createCommitGraph, buildEntityColors, buildExperienceColorMaps, positionKey } from './threeCommitGraph.js';
 import { createCommitGraph2D } from './twoCommitGraph.js';
+import { computeFactRowIndexById, computeLaneIndexByKey } from './graph2DLayout.js';
 import { DEFAULT_LAYOUT_FILTER, nextLayoutFilter, TIME_SCALE_MODES } from './layoutFilter.js';
 import { computeVisualizerLayoutJS } from './layoutCalculator.js';
 import { SAMPLE_HASM_MODELS } from './sampleModels.js';
@@ -29,8 +30,51 @@ export function HasmVisualizerComponent({ colorPattern = 'classic', labels }) {
 
   const currentSample = SAMPLE_HASM_MODELS[selectedModelIndex] || SAMPLE_HASM_MODELS[0];
 
+  // Layout is computed once per model/filter change and shared by both the graph effect
+  // below and the 2D FACT table, so the table rows stay aligned with the graph lanes.
+  const [layoutPayload, setLayoutPayload] = useState(null);
   useEffect(() => {
-    if (!sceneRef.current) return;
+    logger.debug('Computing visualizer layout', {
+      modelName: currentSample.fileName,
+      filter,
+    });
+    // Compute layout using the client-side JS implementation kept in parity with the Rust backend.
+    setLayoutPayload(computeVisualizerLayoutJS(currentSample.model, filter));
+  }, [selectedModelIndex, filter, currentSample]);
+
+  // 2D-mode helpers: fact rows (newest first, matching graph rows) and the lane count that
+  // drives the responsive left/right width split (more parallel EXPERIENCEs -> wider graph pane).
+  const factRows = useMemo(() => {
+    if (!layoutPayload) return [];
+    const rowIndexById = computeFactRowIndexById(layoutPayload);
+    const rows = [];
+    rowIndexById.forEach((rowIndex, id) => {
+      const node = layoutPayload.nodes3d.find((candidate) => candidate.id === id && candidate.entityType === 'FACT');
+      if (node) rows[rowIndex] = node;
+    });
+    return rows.filter(Boolean);
+  }, [layoutPayload]);
+  const laneCount = useMemo(() => (layoutPayload ? computeLaneIndexByKey(layoutPayload).size : 1), [layoutPayload]);
+  const graphPaneWidthPercent = Math.min(72, Math.max(30, laneCount * 12));
+
+  const themeColors = getPatternById(colorPattern).colors;
+  const experienceColors = useMemo(() => {
+    if (!layoutPayload) return null;
+    return {
+      entityColors: buildEntityColors(themeColors),
+      ...buildExperienceColorMaps(layoutPayload, themeColors),
+    };
+  }, [layoutPayload, colorPattern]);
+  const factDateById = useMemo(() => {
+    const map = new Map();
+    (currentSample.model?.facts || []).forEach((fact) => {
+      map.set(String(fact.fact_id || fact.id), fact.occurred_at || fact.occurredAt || '');
+    });
+    return map;
+  }, [currentSample]);
+
+  useEffect(() => {
+    if (!sceneRef.current || !layoutPayload) return;
 
     logger.debug(`Rendering ${viewMode.toUpperCase()} commit graph`, {
       modelName: currentSample.fileName,
@@ -38,12 +82,6 @@ export function HasmVisualizerComponent({ colorPattern = 'classic', labels }) {
       pattern: colorPattern,
       viewMode,
     });
-
-    // Compute layout using the client-side JS implementation kept in parity with the Rust backend.
-    const layoutPayload = computeVisualizerLayoutJS(currentSample.model, filter);
-
-    // Get theme color palette
-    const themeColors = getPatternById(colorPattern).colors;
 
     // Capture previous camera view state before cleanup, keyed by the mode that created it.
     // Only keep complete states: a state captured from a broken/disposed graph must never be restored.
@@ -98,7 +136,7 @@ export function HasmVisualizerComponent({ colorPattern = 'classic', labels }) {
       }
       disposeSceneRef.current();
     };
-  }, [selectedModelIndex, filter, colorPattern, currentSample, viewMode]);
+  }, [layoutPayload, viewMode, colorPattern, currentSample]);
 
   return (
     <main className="visualizer-page HasmVisualizer_Container">
@@ -180,9 +218,55 @@ export function HasmVisualizerComponent({ colorPattern = 'classic', labels }) {
         </div>
       </div>
 
-      {/* GRAPH STAGE (2D or 3D, both rendered with Three.js) */}
+      {/* GRAPH STAGE (2D split view or 3D WebGL) */}
       <div className="graph-stage HasmVisualizer_Stage" aria-label={viewMode === '2d' ? '2D Commit Graph' : '3D Commit Graph'}>
-        <div className="graph-canvas HasmVisualizer_Canvas" ref={sceneRef} />
+        {viewMode === '2d' ? (
+          <div className="HasmVisualizer_Split2D">
+            <div
+              className="graph-canvas HasmVisualizer_Canvas HasmVisualizer_GraphPane2D"
+              style={{ width: `${graphPaneWidthPercent}%` }}
+              ref={sceneRef}
+            />
+            <div
+              className="HasmVisualizer_FactTablePane"
+              style={{ width: `${100 - graphPaneWidthPercent}%` }}
+            >
+              <table className="HasmVisualizer_FactTable">
+                <thead>
+                  <tr>
+                    <th>{labels?.factTitle || 'FACT'}</th>
+                    <th>{labels?.factTime || 'Time'}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {factRows.map((row) => {
+                    const rowColor =
+                      experienceColors?.factColorByPositionKey.get(positionKey(row.x, row.y)) ||
+                      experienceColors?.entityColors.FACT;
+                    const isActive = hoveredNode?.id === row.id || selectedNode?.id === row.id;
+                    return (
+                      <tr
+                        key={row.id}
+                        className={isActive ? 'is-active' : ''}
+                        onMouseEnter={(event) => setHoveredNode({ ...row, x: event.clientX, y: event.clientY })}
+                        onMouseLeave={() => setHoveredNode(null)}
+                        onClick={() => setSelectedNode(row)}
+                      >
+                        <td>
+                          <span className="HasmVisualizer_FactDot" style={{ background: rowColor }} />
+                          {row.label}
+                        </td>
+                        <td>{factDateById.get(row.id) || ''}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        ) : (
+          <div className="graph-canvas HasmVisualizer_Canvas" ref={sceneRef} />
+        )}
 
         {hoveredNode && (
           <div

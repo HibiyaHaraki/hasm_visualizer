@@ -6,20 +6,26 @@ import {
   ensureReadableColor,
   positionKey,
 } from "./threeCommitGraph.js";
+import {
+  LANE_GAP,
+  computeFactRowIndexById,
+  computeLaneIndexByKey,
+  laneX,
+  rowY,
+} from "./graph2DLayout.js";
 
 // Git-Extensions-style 2D commit graph rendered with Three.js: an orthographic camera looks straight
-// at the XY plane, EXPERIENCEs become vertical branch lanes, FACTs become commit dots on a
-// top-to-bottom timeline (newest at the top), and BRANCH_OUT/BRANCH_MERGE lines become curved
-// connectors between lanes. Colors come from the exact same helpers as the 3D renderer, so FACT and
+// at the XY plane, EXPERIENCEs become vertical branch lanes with colored header chips at the top,
+// and FACTs become commit dots snapped to a shared row grid. The row grid is shared with the HTML
+// FACT table rendered beside this panel (see HasmVisualizerComponent), so every dot aligns with its
+// title/time row. Colors come from the exact same helpers as the 3D renderer, so FACT and
 // EXPERIENCE colors are identical between 2D and 3D modes.
 
-const LANE_GAP = 3;
-const ROW_GAP = 2.2;
 const FACT_RADIUS = 0.28;
 const BRANCH_RADIUS = 0.09;
 const LABEL_HEIGHT = 0.55;
 const LABEL_GAP = 0.35;
-const LABEL_SPACE_RIGHT = 10; // world units reserved on the right for commit message sprites
+const TABLE_SPACE_RIGHT = 2; // world units of margin on the right; the FACT table lives in HTML next to this canvas
 
 function createTextSprite(text, color) {
   const font = "42px sans-serif";
@@ -51,39 +57,31 @@ export function createCommitGraph2D(container, payload, theme, onSelect, onHover
   const textColor = ensureReadableColor(theme.textColor, theme.textBackgroundColor);
   const highlightColor = ensureReadableColor(theme.textColor, theme.textBackgroundColor);
 
-  // Lane assignment: one vertical lane per EXPERIENCE position (sorted by depth then lane),
-  // plus fallback lanes for any other endpoint position (e.g. PERSON nodes used by LINK lines).
-  const laneIndexByKey = new Map();
-  payload.nodes3d
-    .filter((node) => node.entityType === "EXPERIENCE")
-    .map((node) => ({ key: positionKey(node.x, node.y), x: node.x, y: node.y }))
-    .sort((left, right) => (left.x - right.x) || (left.y - right.y))
-    .forEach(({ key }) => {
-      if (!laneIndexByKey.has(key)) laneIndexByKey.set(key, laneIndexByKey.size);
-    });
-  payload.nodes3d.forEach((node) => {
-    const key = positionKey(node.x, node.y);
-    if (!laneIndexByKey.has(key)) laneIndexByKey.set(key, laneIndexByKey.size);
-  });
+  // Lane assignment: one vertical lane per parallel EXPERIENCE branch (shared with the table split).
+  const laneIndexByKey = computeLaneIndexByKey(payload);
 
   const experienceIdByPositionKey = new Map(payload.nodes3d
     .filter((node) => node.entityType === "EXPERIENCE")
     .map((node) => [positionKey(node.x, node.y), node.id]));
 
+  // Row grid shared with the HTML FACT table: newest fact at row 0 (top).
+  const rowIndexById = computeFactRowIndexById(payload);
+  const rowCount = rowIndexById.size || 1;
   const maxZ = Math.max(1, ...payload.nodes3d.map((node) => node.z));
-  const laneX = (key) => (laneIndexByKey.get(key) ?? 0) * LANE_GAP;
-  const zToY = (z) => (maxZ - z) * ROW_GAP; // newest commits at the top
-  const to2d = (point) => new THREE.Vector3(laneX(positionKey(point[0], point[1])), zToY(point[2]), 0);
+  const factRowY = (factId) => rowY(rowCount, rowIndexById.get(factId) ?? 0);
+  const zExtentY = (z) => (1 - z / maxZ) * (rowCount - 1) * 2.2;
+  const to2d = (point) => new THREE.Vector3(laneX(laneIndexByKey, positionKey(point[0], point[1])), zExtentY(point[2]), 0);
+  const topHeaderY = rowY(rowCount, 0) + 2.2; // one grid step above the newest fact row
 
   const graphWidth = Math.max(1, laneIndexByKey.size - 1) * LANE_GAP;
-  const graphHeight = maxZ * ROW_GAP;
+  const graphHeight = topHeaderY + 1;
   const centerX = graphWidth / 2;
   const centerY = graphHeight / 2;
 
   // Orthographic frustum sized so the whole graph fits on first load.
   const aspect = width / height;
   const margin = 3;
-  const viewHeight = Math.max(graphHeight + margin * 2, (graphWidth + LABEL_SPACE_RIGHT + margin * 2) / aspect, 6);
+  const viewHeight = Math.max(graphHeight + margin * 2, (graphWidth + TABLE_SPACE_RIGHT + margin * 2) / aspect, 6);
   const camera = new THREE.OrthographicCamera(
     (-viewHeight * aspect) / 2, (viewHeight * aspect) / 2, viewHeight / 2, -viewHeight / 2, 0.1, 1000
   );
@@ -182,52 +180,36 @@ export function createCommitGraph2D(container, payload, theme, onSelect, onHover
     }
   });
 
-  // EXPERIENCE lane labels next to each branch tip, like branch tags in a git commit graph.
+  // EXPERIENCE lane labels in the header row at the top of each lane, like branch names in a git commit graph.
   payload.nodes3d
     .filter((node) => node.entityType === "EXPERIENCE")
     .forEach((node) => {
       const key = positionKey(node.x, node.y);
       const trunkColor = trunkColorByPositionKey.get(key) || entityColors.EXPERIENCE;
-      const tip = tipByExperienceId.get(node.id);
       const sprite = createTextSprite(node.label, trunkColor);
-      sprite.position.set(
-        (tip?.x ?? laneX(key)) + FACT_RADIUS + LABEL_GAP,
-        (tip?.y ?? zToY(0)) + LABEL_HEIGHT,
-        0
-      );
+      sprite.position.set(laneX(laneIndexByKey, key) + LABEL_GAP, topHeaderY, 0);
       track(sprite);
     });
 
-  // FACT commit dots with a commit-message label, mirroring a git commit graph row.
+  // FACT commit dots snapped to their table row; labels live in the HTML table beside this panel.
   payload.nodes3d
     .filter((node) => node.entityType === "FACT")
     .forEach((node) => {
       const key = positionKey(node.x, node.y);
       const color = factColorByPositionKey.get(key) || entityColors.FACT;
       const opacity = node.isDirectFact ? 1 : 0.32;
-      const center = to2d([node.x, node.y, node.z]);
       const mesh = new THREE.Mesh(
         new THREE.CircleGeometry(FACT_RADIUS, 32),
         new THREE.MeshBasicMaterial({ color, transparent: true, opacity })
       );
-      mesh.position.copy(center);
+      mesh.position.set(laneX(laneIndexByKey, key), factRowY(node.id), 0);
       mesh.userData = { ...node, baseColor: color, baseOpacity: opacity };
       track(mesh);
       factMeshes.push(mesh);
 
-      const firstForId = !factMeshesById.has(node.id);
       const meshes = factMeshesById.get(node.id) || [];
       meshes.push(mesh);
       factMeshesById.set(node.id, meshes);
-
-      // The layout emits one FACT node per visible lane; label only the first so text doesn't duplicate.
-      if (firstForId) {
-        const dateLabel = factDatesById?.get(node.id);
-        const sprite = createTextSprite(dateLabel ? `${node.label} — ${dateLabel}` : node.label, textColor);
-        sprite.material.opacity = opacity;
-        sprite.position.set(center.x + FACT_RADIUS + LABEL_GAP, center.y, 0);
-        track(sprite);
-      }
     });
 
   // Highlight hovered node plus its linked entities / parent EXPERIENCEs (same rule as 3D).
