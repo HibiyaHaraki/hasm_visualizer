@@ -72,6 +72,12 @@ export function HasmVisualizerComponent({ colorPattern = 'classic', labels }) {
     disposeSceneRef.current?.setScrollTop?.(scrollTop2D);
   }, [scrollTop2D, viewMode]);
 
+  // Mirror table-row hover onto the 2D graph so the corresponding FACT dots are emphasized.
+  useEffect(() => {
+    if (viewMode !== '2d') return;
+    disposeSceneRef.current?.setHighlight?.(hoveredNode ?? null);
+  }, [hoveredNode, viewMode]);
+
   const themeColors = getPatternById(colorPattern).colors;
   const experienceColors = useMemo(() => {
     if (!layoutPayload) return null;

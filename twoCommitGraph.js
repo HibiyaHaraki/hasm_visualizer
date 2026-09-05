@@ -72,7 +72,17 @@ export function createCommitGraph2D(container, payload, theme, onSelect, onHover
   const totalGraphHeight = rowCount * ROW_GAP;
   const factRowY = (factId) => totalGraphHeight - (rowIndexById.get(factId) ?? 0) * ROW_GAP - ROW_GAP / 2;
   const zExtentY = (z) => totalGraphHeight - (z / maxZ) * totalGraphHeight;
-  const to2d = (point) => new THREE.Vector3(laneX(laneIndexByKey, positionKey(point[0], point[1])), zExtentY(point[2]), 0);
+  // Branch endpoints are exact fact z values (firstFactZ/lastFactZ), so snapping z -> the fact's
+  // grid row keeps EXPERIENCE lanes and connectors exactly on their FACT dots at any time scale.
+  const rowYByZ = new Map();
+  payload.nodes3d
+    .filter((node) => node.entityType === "FACT")
+    .forEach((node) => rowYByZ.set(node.z, factRowY(node.id)));
+  const to2d = (point) => new THREE.Vector3(
+    laneX(laneIndexByKey, positionKey(point[0], point[1])),
+    rowYByZ.get(point[2]) ?? zExtentY(point[2]),
+    0
+  );
 
   const graphWidth = Math.max(1, laneIndexByKey.size - 1) * LANE_GAP;
   const centerX = graphWidth / 2;
@@ -287,5 +297,7 @@ export function createCommitGraph2D(container, payload, theme, onSelect, onHover
   };
   disposeFn.getViewState = () => ({ scrollTop: currentScrollTop() });
   disposeFn.setScrollTop = applyScrollTop;
+  // Lets the FACT table emphasize graph dots when a row is hovered.
+  disposeFn.setHighlight = setHighlight;
   return disposeFn;
 }
