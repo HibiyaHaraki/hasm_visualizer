@@ -7,6 +7,7 @@ import {
 } from "./threeCommitGraph.js";
 import {
   LANE_GAP,
+  ROW_GAP,
   ROW_HEIGHT_PX,
   TABLE_HEADER_HEIGHT_PX,
   computeFactRowIndexById,

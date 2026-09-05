@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createCommitGraph, buildEntityColors, buildExperienceColorMaps, positionKey } from './threeCommitGraph.js';
 import { createCommitGraph2D } from './twoCommitGraph.js';
-import { computeFactRowIndexById, computeLaneIndexByKey, ROW_HEIGHT_PX, TABLE_HEADER_HEIGHT_PX, ROW_GAP } from './graph2DLayout.js';
+import { computeFactRowIndexById, computeLaneIndexByKey, ROW_HEIGHT_PX, TABLE_HEADER_HEIGHT_PX } from './graph2DLayout.js';
 import { DEFAULT_LAYOUT_FILTER, nextLayoutFilter, TIME_SCALE_MODES } from './layoutFilter.js';
 import { computeVisualizerLayoutJS } from './layoutCalculator.js';
 import { SAMPLE_HASM_MODELS } from './sampleModels.js';
