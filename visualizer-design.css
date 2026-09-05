@@ -84,9 +84,12 @@
   border-collapse: collapse;
   font-size: 0.8rem;
 }
+/* Fixed 30px rows and a 37px header keep the table in lock-step with the 2D graph's row grid. */
 .HasmVisualizer_Container .HasmVisualizer_FactTable th {
   position: sticky;
   top: 0;
+  height: 37px;
+  box-sizing: border-box;
   text-align: left;
   padding: 8px 10px;
   background: var(--theme-soft);
@@ -97,6 +100,8 @@
   letter-spacing: 0.04em;
 }
 .HasmVisualizer_Container .HasmVisualizer_FactTable td {
+  height: 30px;
+  box-sizing: border-box;
   padding: 6px 10px;
   border-bottom: 1px solid var(--theme-border);
   color: var(--theme-text);

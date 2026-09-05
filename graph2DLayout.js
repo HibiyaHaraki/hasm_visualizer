@@ -5,6 +5,11 @@ import { positionKey } from "./threeCommitGraph.js";
 
 export const LANE_GAP = 3;
 export const ROW_GAP = 2.2;
+// Fixed pixel metrics shared with the FACT table rows: the 2D camera uses these to convert
+// row indices to world Y at a constant world-per-pixel ratio, so graph dots always render
+// exactly beside their table rows — no zoom scaling, so alignment survives scrolling.
+export const ROW_HEIGHT_PX = 30;
+export const TABLE_HEADER_HEIGHT_PX = 37;
 
 // One lane per parallel EXPERIENCE branch (root branches included), plus fallback
 // lanes for any other endpoint position (e.g. PERSON nodes referenced by LINK lines).

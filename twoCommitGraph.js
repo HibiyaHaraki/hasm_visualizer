@@ -1,5 +1,4 @@
 import * as THREE from "three";
-import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import {
   buildEntityColors,
   buildExperienceColorMaps,
@@ -8,10 +7,11 @@ import {
 } from "./threeCommitGraph.js";
 import {
   LANE_GAP,
+  ROW_HEIGHT_PX,
+  TABLE_HEADER_HEIGHT_PX,
   computeFactRowIndexById,
   computeLaneIndexByKey,
   laneX,
-  rowY,
 } from "./graph2DLayout.js";
 
 // Git-Extensions-style 2D commit graph rendered with Three.js: an orthographic camera looks straight
@@ -47,7 +47,7 @@ function createTextSprite(text, color) {
   return sprite;
 }
 
-export function createCommitGraph2D(container, payload, theme, onSelect, onHover, factDatesById, initialViewState) {
+export function createCommitGraph2D(container, payload, theme, onSelect, onHover, factDatesById, initialViewState, scrollSync) {
   const width = Math.max(container.clientWidth, 320);
   const height = Math.max(container.clientHeight, 360);
   const scene = new THREE.Scene();
@@ -68,36 +68,33 @@ export function createCommitGraph2D(container, payload, theme, onSelect, onHover
   const rowIndexById = computeFactRowIndexById(payload);
   const rowCount = rowIndexById.size || 1;
   const maxZ = Math.max(1, ...payload.nodes3d.map((node) => node.z));
-  const factRowY = (factId) => rowY(rowCount, rowIndexById.get(factId) ?? 0);
-  const zExtentY = (z) => (1 - z / maxZ) * (rowCount - 1) * 2.2;
+  const totalGraphHeight = rowCount * ROW_GAP;
+  const factRowY = (factId) => totalGraphHeight - (rowIndexById.get(factId) ?? 0) * ROW_GAP - ROW_GAP / 2;
+  const zExtentY = (z) => totalGraphHeight - (z / maxZ) * totalGraphHeight;
   const to2d = (point) => new THREE.Vector3(laneX(laneIndexByKey, positionKey(point[0], point[1])), zExtentY(point[2]), 0);
-  const topHeaderY = rowY(rowCount, 0) + 2.2; // one grid step above the newest fact row
 
   const graphWidth = Math.max(1, laneIndexByKey.size - 1) * LANE_GAP;
-  const graphHeight = topHeaderY + 1;
   const centerX = graphWidth / 2;
-  const centerY = graphHeight / 2;
+  const centerY = totalGraphHeight / 2;
 
-  // Orthographic frustum sized so the whole graph fits on first load.
-  const aspect = width / height;
-  const margin = 3;
-  const viewHeight = Math.max(graphHeight + margin * 2, (graphWidth + TABLE_SPACE_RIGHT + margin * 2) / aspect, 6);
-  const camera = new THREE.OrthographicCamera(
-    (-viewHeight * aspect) / 2, (viewHeight * aspect) / 2, viewHeight / 2, -viewHeight / 2, 0.1, 1000
-  );
-  // Only restore view state that was captured by a previous, healthy 2D session; a 3D perspective
-  // view state (or one missing fields) is incompatible and intentionally ignored.
-  const has2DViewState = Boolean(
-    initialViewState &&
-    typeof initialViewState.zoom === "number" && Number.isFinite(initialViewState.zoom) &&
-    initialViewState.position && Number.isFinite(initialViewState.position.x) && Number.isFinite(initialViewState.position.y) &&
-    initialViewState.target && Number.isFinite(initialViewState.target.x) && Number.isFinite(initialViewState.target.y)
-  );
-  camera.position.set(has2DViewState ? initialViewState.position.x : centerX, has2DViewState ? initialViewState.position.y : centerY, 50);
-  if (has2DViewState) {
-    camera.zoom = initialViewState.zoom;
+  // The camera uses a constant world-per-pixel ratio (no zoom), so one grid row always renders
+  // exactly ROW_HEIGHT_PX tall — keeping graph dots aligned with the HTML table rows while scrolling.
+  const worldPerPixel = ROW_GAP / ROW_HEIGHT_PX;
+  const applyCameraFrustum = () => {
+    const viewWidth = Math.max(container.clientWidth, 320);
+    const viewHeightPx = Math.max(container.clientHeight, 360);
+    camera.left = (-viewWidth * worldPerPixel) / 2;
+    camera.right = (viewWidth * worldPerPixel) / 2;
+    camera.top = (viewHeightPx * worldPerPixel) / 2;
+    camera.bottom = (-viewHeightPx * worldPerPixel) / 2;
     camera.updateProjectionMatrix();
-  }
+  };
+  const camera = new THREE.OrthographicCamera(0, 0, 0, 0, 0.1, 1000);
+  applyCameraFrustum();
+  // Only restore a scroll offset captured by a previous, healthy 2D session.
+  const restoredScrollTop =
+    initialViewState && Number.isFinite(initialViewState.scrollTop) ? initialViewState.scrollTop : null;
+  camera.position.set(centerX, centerY, 50);
 
   const renderer = new THREE.WebGLRenderer({ antialias: true });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -105,19 +102,23 @@ export function createCommitGraph2D(container, payload, theme, onSelect, onHover
   container.appendChild(renderer.domElement);
   renderer.domElement.style.touchAction = "none";
 
-  const controls = new OrbitControls(camera, renderer.domElement);
-  controls.enableRotate = false; // pan/zoom only: this view stays flat like a git commit graph
-  controls.screenSpacePanning = true;
-  controls.mouseButtons = { LEFT: THREE.MOUSE.PAN, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.PAN };
-  controls.touches = { ONE: THREE.TOUCH.PAN, TWO: THREE.TOUCH.DOLLY_PAN };
-  controls.minZoom = 0.2;
-  controls.maxZoom = 8;
-  if (has2DViewState) {
-    controls.target.set(initialViewState.target.x, initialViewState.target.y, 0);
-  } else {
-    controls.target.set(centerX, centerY, 0);
-  }
-  controls.update();
+  // Vertical-scroll-only navigation: the wheel scrolls the shared time axis (and the FACT table
+  // via onScroll); drag/zoom gestures are disabled so row alignment can never be broken.
+  const viewportHeightWorld = () => camera.top - camera.bottom;
+  const applyScrollTop = (scrollTop) => {
+    const centeredScroll = scrollTop - (container.clientHeight - TABLE_HEADER_HEIGHT_PX) / 2;
+    camera.position.y = totalGraphHeight - centeredScroll * worldPerPixel - viewportHeightWorld() / 2;
+    renderer.render(scene, camera);
+  };
+  const currentScrollTop = () => {
+    const centeredScroll = (totalGraphHeight - camera.position.y - viewportHeightWorld() / 2) / worldPerPixel;
+    return centeredScroll + (container.clientHeight - TABLE_HEADER_HEIGHT_PX) / 2;
+  };
+  const handleWheel = (event) => {
+    event.preventDefault();
+    scrollSync?.onScroll(currentScrollTop() + event.deltaY);
+  };
+  renderer.domElement.addEventListener("wheel", handleWheel, { passive: false });
 
   const disposables = [];
   const track = (object) => {
@@ -176,18 +177,19 @@ export function createCommitGraph2D(container, payload, theme, onSelect, onHover
       meshes.push(mesh);
       experienceMeshesById.set(experienceId, meshes);
       branchMeshes.push(mesh);
-      tipByExperienceId.set(experienceId, to); // `to` is the newest (top-most) end of the branch
     }
   });
 
-  // EXPERIENCE lane labels in the header row at the top of each lane, like branch names in a git commit graph.
+  // EXPERIENCE lane labels pinned to the scrollable header band at the top of each lane, aligned
+  // with the FACT table's header row (like branch names in a git commit graph).
+  const headerCenterY = totalGraphHeight + (TABLE_HEADER_HEIGHT_PX * worldPerPixel) / 2;
   payload.nodes3d
     .filter((node) => node.entityType === "EXPERIENCE")
     .forEach((node) => {
       const key = positionKey(node.x, node.y);
       const trunkColor = trunkColorByPositionKey.get(key) || entityColors.EXPERIENCE;
       const sprite = createTextSprite(node.label, trunkColor);
-      sprite.position.set(laneX(laneIndexByKey, key) + LABEL_GAP, topHeaderY, 0);
+      sprite.position.set(laneX(laneIndexByKey, key) + LABEL_GAP, headerCenterY, 0);
       track(sprite);
     });
 
@@ -259,24 +261,19 @@ export function createCommitGraph2D(container, payload, theme, onSelect, onHover
   const resize = () => {
     const nextWidth = Math.max(container.clientWidth, 320);
     const nextHeight = Math.max(container.clientHeight, 360);
-    const nextAspect = nextWidth / nextHeight;
-    camera.left = (-viewHeight * nextAspect) / 2;
-    camera.right = (viewHeight * nextAspect) / 2;
-    camera.top = viewHeight / 2;
-    camera.bottom = -viewHeight / 2;
-    camera.updateProjectionMatrix();
+    const scrollBefore = currentScrollTop();
+    applyCameraFrustum();
     renderer.setSize(nextWidth, nextHeight);
-    renderer.render(scene, camera);
+    applyScrollTop(scrollBefore);
   };
   window.addEventListener("resize", resize);
-  controls.addEventListener("change", () => renderer.render(scene, camera));
-  renderer.render(scene, camera);
+  applyScrollTop(restoredScrollTop ?? 0);
 
   const disposeFn = () => {
     window.removeEventListener("resize", resize);
     renderer.domElement.removeEventListener("pointermove", handleMove);
     renderer.domElement.removeEventListener("click", handleClick);
-    controls.dispose();
+    renderer.domElement.removeEventListener("wheel", handleWheel);
     disposables.forEach((object) => {
       object.geometry?.dispose();
       object.material?.map?.dispose();
@@ -287,10 +284,7 @@ export function createCommitGraph2D(container, payload, theme, onSelect, onHover
       container.removeChild(renderer.domElement);
     }
   };
-  disposeFn.getViewState = () => ({
-    position: camera.position.clone(),
-    zoom: camera.zoom,
-    target: controls.target.clone(),
-  });
+  disposeFn.getViewState = () => ({ scrollTop: currentScrollTop() });
+  disposeFn.setScrollTop = applyScrollTop;
   return disposeFn;
 }

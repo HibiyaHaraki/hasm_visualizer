@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createCommitGraph, buildEntityColors, buildExperienceColorMaps, positionKey } from './threeCommitGraph.js';
 import { createCommitGraph2D } from './twoCommitGraph.js';
-import { computeFactRowIndexById, computeLaneIndexByKey } from './graph2DLayout.js';
+import { computeFactRowIndexById, computeLaneIndexByKey, ROW_HEIGHT_PX, TABLE_HEADER_HEIGHT_PX, ROW_GAP } from './graph2DLayout.js';
 import { DEFAULT_LAYOUT_FILTER, nextLayoutFilter, TIME_SCALE_MODES } from './layoutFilter.js';
 import { computeVisualizerLayoutJS } from './layoutCalculator.js';
 import { SAMPLE_HASM_MODELS } from './sampleModels.js';
@@ -57,6 +57,21 @@ export function HasmVisualizerComponent({ colorPattern = 'classic', labels }) {
   const laneCount = useMemo(() => (layoutPayload ? computeLaneIndexByKey(layoutPayload).size : 1), [layoutPayload]);
   const graphPaneWidthPercent = Math.min(72, Math.max(30, laneCount * 12));
 
+  // Shared vertical scroll offset between the 2D commit graph and the FACT table, so the dot for a
+  // FACT and its table row stay at the same height no matter which pane is scrolled.
+  const [scrollTop2D, setScrollTop2D] = useState(0);
+  const factTableRef = useRef(null);
+  const maxScrollTop2D = Math.max(
+    0,
+    factRows.length * ROW_HEIGHT_PX + TABLE_HEADER_HEIGHT_PX - 360
+  );
+  const clampScroll2D = (value) => Math.min(Math.max(value, 0), maxScrollTop2D);
+  useEffect(() => {
+    if (viewMode !== '2d') return;
+    if (factTableRef.current) factTableRef.current.scrollTop = scrollTop2D;
+    disposeSceneRef.current?.setScrollTop?.(scrollTop2D);
+  }, [scrollTop2D, viewMode]);
+
   const themeColors = getPatternById(colorPattern).colors;
   const experienceColors = useMemo(() => {
     if (!layoutPayload) return null;
@@ -87,10 +102,7 @@ export function HasmVisualizerComponent({ colorPattern = 'classic', labels }) {
     // Only keep complete states: a state captured from a broken/disposed graph must never be restored.
     if (typeof disposeSceneRef.current?.getViewState === 'function') {
       const captured = disposeSceneRef.current.getViewState();
-      const isComplete2D = lastModeRef.current === '2d'
-        && Number.isFinite(captured?.zoom)
-        && Number.isFinite(captured?.position?.x) && Number.isFinite(captured?.position?.y)
-        && Number.isFinite(captured?.target?.x) && Number.isFinite(captured?.target?.y);
+      const isComplete2D = lastModeRef.current === '2d' && Number.isFinite(captured?.scrollTop);
       const isComplete3D = lastModeRef.current === '3d'
         && captured?.position && captured?.quaternion && captured?.target;
       if (isComplete2D || isComplete3D) {
@@ -121,14 +133,15 @@ export function HasmVisualizerComponent({ colorPattern = 'classic', labels }) {
         }
       },
       undefined,
-      viewStateByModeRef.current[viewMode]
+      viewStateByModeRef.current[viewMode],
+      { onScroll: (nextScrollTop) => setScrollTop2D(clampScroll2D(nextScrollTop)) }
     );
 
     return () => {
       if (typeof disposeSceneRef.current?.getViewState === 'function') {
         const captured = disposeSceneRef.current.getViewState();
         const isComplete = viewMode === '2d'
-          ? Number.isFinite(captured?.zoom) && captured?.position && captured?.target
+          ? Number.isFinite(captured?.scrollTop)
           : Boolean(captured?.position && captured?.quaternion && captured?.target);
         if (isComplete) {
           viewStateByModeRef.current[viewMode] = captured;
@@ -230,6 +243,8 @@ export function HasmVisualizerComponent({ colorPattern = 'classic', labels }) {
             <div
               className="HasmVisualizer_FactTablePane"
               style={{ width: `${100 - graphPaneWidthPercent}%` }}
+              ref={factTableRef}
+              onScroll={(event) => setScrollTop2D(clampScroll2D(event.currentTarget.scrollTop))}
             >
               <table className="HasmVisualizer_FactTable">
                 <thead>
@@ -294,7 +309,7 @@ export function HasmVisualizerComponent({ colorPattern = 'classic', labels }) {
         </div>
         <div style={{ marginLeft: 'auto', color: 'var(--theme-muted)', fontSize: '0.75rem', fontWeight: 'normal' }}>
           {viewMode === '2d'
-            ? '💡 Drag to pan, scroll to zoom, click node to inspect'
+            ? '💡 Scroll to move along the time axis, click node to inspect'
             : '💡 Drag to rotate, scroll to zoom, click node to inspect'}
         </div>
       </div>
