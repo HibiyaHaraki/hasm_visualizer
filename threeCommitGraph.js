@@ -31,7 +31,7 @@ function contrastRatio(firstColor, secondColor) {
 }
 
 // Steps a color toward white or away from the background until it reads clearly against it (WCAG AA, ratio >= 4.5).
-function ensureReadableColor(color, backgroundColor, minRatio = 4.5) {
+export function ensureReadableColor(color, backgroundColor, minRatio = 4.5) {
   if (contrastRatio(color, backgroundColor) >= minRatio) return color;
   const target = relativeLuminance(backgroundColor) < 0.5 ? "#ffffff" : "#000000";
   for (let step = 1; step <= 10; step += 1) {
@@ -43,7 +43,8 @@ function ensureReadableColor(color, backgroundColor, minRatio = 4.5) {
 
 // Derives PERSON/EXPERIENCE/FACT accents from the active color pattern instead of fixed hex values, then
 // nudges each toward readable contrast so a dark FACT commit never lands on a dark background (or vice versa).
-function buildEntityColors(theme) {
+// Shared with the 2D renderer so both modes display identical entity colors.
+export function buildEntityColors(theme) {
   const background = theme.textBackgroundColor;
   return {
     EXPERIENCE: ensureReadableColor(theme.mainColor, background),
@@ -68,12 +69,14 @@ function hslToHex(hue, saturationPercent, lightnessPercent) {
 function positionKey(x, y) {
   return `${x.toFixed(2)},${y.toFixed(2)}`;
 }
+export { positionKey };
 
 // Spreads each EXPERIENCE around the hue wheel by the golden angle (hue_i = i * 137.508 deg mod 360), which
 // keeps adjacent branches maximally distinguishable no matter how many EXPERIENCEs exist. FACT commits on a given
 // EXPERIENCE reuse that same hue but blend toward the theme's text color, so they read as a related, lighter
 // tint of their own branch rather than an identical or unrelated color.
-function buildExperienceColorMaps(payload, theme) {
+// Shared with the 2D renderer so both modes display identical EXPERIENCE/FACT colors.
+export function buildExperienceColorMaps(payload, theme) {
   const background = theme.textBackgroundColor;
   const trunkColorByPositionKey = new Map();
   const factColorByPositionKey = new Map();

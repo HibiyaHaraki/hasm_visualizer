@@ -34,3 +34,34 @@
 }
 .HasmVisualizer_Container .HasmVisualizer_InspectorTitle { margin: 0 0 6px; font-family: Georgia, serif; font-size: 1.1rem; font-weight: 700; }
 .HasmVisualizer_Container .HasmVisualizer_InspectorMeta { display: flex; flex-wrap: wrap; gap: 12px; color: var(--theme-muted); font-size: 0.8rem; }
+
+/* 2D/3D view mode toggle */
+.HasmVisualizer_Container .HasmVisualizer_ViewToggle {
+  display: inline-flex;
+  border: 1px solid var(--theme-border);
+  border-radius: 4px;
+  overflow: hidden;
+}
+.HasmVisualizer_Container .HasmVisualizer_ViewToggleButton {
+  padding: 6px 16px;
+  border: none;
+  cursor: pointer;
+  font-weight: 700;
+  font-size: 0.82rem;
+  color: var(--theme-input-text);
+  background: var(--theme-input-bg);
+}
+.HasmVisualizer_Container .HasmVisualizer_ViewToggleButton + .HasmVisualizer_ViewToggleButton {
+  border-left: 1px solid var(--theme-border);
+}
+.HasmVisualizer_Container .HasmVisualizer_ViewToggleButton.is-active {
+  background: var(--theme-primary);
+  color: var(--theme-textbackground);
+}
+
+/* 2D mode: the SVG graph is larger than the stage, so the canvas scrolls instead of orbiting. */
+.graph-canvas.HasmVisualizer_Canvas2D {
+  overflow: auto;
+  touch-action: pan-x pan-y;
+}
+
