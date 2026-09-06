@@ -92,7 +92,37 @@ export function buildExperienceColorMaps(payload, theme) {
   return { trunkColorByPositionKey, factColorByPositionKey };
 }
 
-function createTimelineLabel(text, color) {
+// Number of Z-axis tick labels drawn at most. Each label is a canvas-backed sprite, so a package
+// with thousands of distinct FACT timestamps would otherwise exhaust GPU memory on the axis alone.
+const MAX_TIMELINE_TICKS = 60;
+
+// Ceiling on FACT meshes handed to the scene, so an unscoped large package degrades instead of freezing.
+export const DEFAULT_MAX_RENDERED_NODES = 4000;
+
+/// Trims a layout payload to a renderable size, returning the payload plus a human-readable warning
+/// when nodes were dropped. EXPERIENCE nodes are always kept because branch geometry depends on them.
+export function limitRenderedNodes(payload, maxNodes = DEFAULT_MAX_RENDERED_NODES) {
+  const nodes = payload?.nodes3d || [];
+  if (!Number.isFinite(maxNodes) || maxNodes <= 0 || nodes.length <= maxNodes) {
+    return { payload, warning: "" };
+  }
+  const experienceNodes = nodes.filter((node) => node.entityType === "EXPERIENCE");
+  const allFactNodes = nodes.filter((node) => node.entityType === "FACT");
+  const factNodes = allFactNodes.slice(0, Math.max(maxNodes - experienceNodes.length, 0));
+  const dropped = allFactNodes.length - factNodes.length;
+  return {
+    payload: { ...payload, nodes3d: [...experienceNodes, ...factNodes] },
+    warning: `Showing ${factNodes.length} of ${allFactNodes.length} FACT nodes. Narrow the PERSON or EXPERIENCE scope to see the remaining ${dropped}.`,
+  };
+}
+
+// Sprite textures are cached by text and color so repeated timeline labels reuse one GPU texture.
+const labelTextureCache = new Map();
+
+function labelTexture(text, color) {
+  const cacheKey = `${color}|${text}`;
+  const cached = labelTextureCache.get(cacheKey);
+  if (cached) return cached;
   const canvas = document.createElement("canvas");
   canvas.width = 256;
   canvas.height = 64;
@@ -102,7 +132,12 @@ function createTimelineLabel(text, color) {
   context.textBaseline = "middle";
   context.fillText(text, 4, 32);
   const texture = new THREE.CanvasTexture(canvas);
-  const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: texture, transparent: true, depthTest: false }));
+  labelTextureCache.set(cacheKey, texture);
+  return texture;
+}
+
+function createTimelineLabel(text, color) {
+  const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: labelTexture(text, color), transparent: true, depthTest: false }));
   sprite.scale.set(3, 0.75, 1);
   return sprite;
 }
@@ -116,14 +151,23 @@ function createTimelineAxis(scene, payload, factDatesById, color) {
 
   const axisX = -12;
   const axisY = 0;
-  const maxZ = Math.max(...factNodes.map((node) => node.z));
+  // Reduce instead of Math.max(...spread): the spread form throws past ~100k arguments.
+  const maxZ = factNodes.reduce((highest, node) => Math.max(highest, node.z), 0);
   const axisGeometry = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(axisX, axisY, 0), new THREE.Vector3(axisX, axisY, maxZ)]);
   const axisMaterial = new THREE.LineBasicMaterial({ color });
   const axisLine = new THREE.Line(axisGeometry, axisMaterial);
   scene.add(axisLine);
   disposables.push(axisLine);
 
-  const tickZValues = [...new Set(factNodes.map((node) => node.z))].sort((left, right) => left - right);
+  const firstFactByZ = new Map();
+  factNodes.forEach((node) => {
+    if (!firstFactByZ.has(node.z)) firstFactByZ.set(node.z, node);
+  });
+  const allTickZValues = [...firstFactByZ.keys()].sort((left, right) => left - right);
+  // Evenly sample the timeline when a package has more distinct timestamps than the tick budget.
+  const tickStride = Math.max(1, Math.ceil(allTickZValues.length / MAX_TIMELINE_TICKS));
+  const tickZValues = allTickZValues.filter((_value, index) => index % tickStride === 0);
+
   tickZValues.forEach((z, index) => {
     const tickGeometry = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(axisX - 0.4, axisY, z), new THREE.Vector3(axisX + 0.4, axisY, z)]);
     const tickMaterial = new THREE.LineBasicMaterial({ color });
@@ -131,8 +175,8 @@ function createTimelineAxis(scene, payload, factDatesById, color) {
     scene.add(tick);
     disposables.push(tick);
 
-    const factAtZ = factNodes.find((node) => node.z === z);
-    const label = factDatesById?.get(factAtZ?.id) || `#${index + 1}`;
+    const factAtZ = firstFactByZ.get(z);
+    const label = factDatesById?.get(factAtZ?.id) || `#${(index * tickStride) + 1}`;
     const sprite = createTimelineLabel(label, color);
     sprite.position.set(axisX - 2.2, axisY, z);
     scene.add(sprite);
@@ -223,12 +267,14 @@ export function createCommitGraph(container, payload, theme, onSelect, onHover, 
     scene.add(mesh);
   });
 
+  // One shared geometry for every FACT commit: allocating a BoxGeometry per node costs a separate
+  // GPU buffer each, which is the dominant memory cost on large packages.
+  const factGeometry = new THREE.BoxGeometry(0.62, 0.62, 0.62);
   const nodes = payload.nodes3d.filter((node) => node.entityType === "FACT").map((node) => {
-    const geometry = new THREE.BoxGeometry(0.62, 0.62, 0.62);
     const color = factColorByPositionKey.get(positionKey(node.x, node.y)) || entityColors.FACT;
     const opacity = node.isDirectFact ? 1 : 0.32;
     const material = new THREE.MeshStandardMaterial({ color, roughness: 0.45, metalness: 0.15, transparent: true, opacity, depthWrite: node.isDirectFact });
-    const mesh = new THREE.Mesh(geometry, material);
+    const mesh = new THREE.Mesh(factGeometry, material);
     mesh.position.set(node.x, node.y, node.z);
     mesh.userData = { ...node, baseColor: color, baseOpacity: opacity };
     const meshes = factMeshesById.get(node.id) || [];
@@ -302,11 +348,12 @@ export function createCommitGraph(container, payload, theme, onSelect, onHover, 
     renderer.domElement.removeEventListener("pointermove", handleMove);
     renderer.domElement.removeEventListener("click", handleClick);
     controls.dispose();
-    nodes.forEach((node) => { node.geometry.dispose(); node.material.dispose(); });
+    factGeometry.dispose();
+    nodes.forEach((node) => { node.material.dispose(); });
     lineMeshes.forEach((line) => { line.geometry.dispose(); line.material.dispose(); });
     timelineAxisObjects.forEach((object) => {
       object.geometry?.dispose();
-      object.material?.map?.dispose();
+      // Label textures live in a process-wide cache and are deliberately not disposed here.
       object.material?.dispose();
     });
     renderer.dispose();
