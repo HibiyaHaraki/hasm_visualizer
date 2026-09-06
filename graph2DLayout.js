@@ -50,9 +50,12 @@ export function laneX(laneIndexByKey, key) {
 
 // Pixel Y, measured from the top of the scrollable content (header included), of the
 // vertical center of a row — the exact same formula the HTML table renders that row at
-// (TABLE_HEADER_HEIGHT_PX + rowIndex * ROW_HEIGHT_PX + half a row). Sharing one native
-// `scrollTop` between the two panes is therefore enough to keep them pixel-aligned.
-export function rowCenterY(rowIndex) {
-  return TABLE_HEADER_HEIGHT_PX + rowIndex * ROW_HEIGHT_PX + ROW_HEIGHT_PX / 2;
+// (headerHeightPx + rowIndex * rowHeightPx + half a row). Sharing one native `scrollTop`
+// between the two panes is therefore enough to keep them pixel-aligned. Accepts the *actual*
+// measured header/row height (see HasmVisualizerComponent.jsx) so the graph always matches
+// whatever the table really rendered at, not just the nominal ROW_HEIGHT_PX/TABLE_HEADER_HEIGHT_PX
+// constants (which a browser's own font metrics or a host app's CSS could nudge slightly).
+export function rowCenterY(rowIndex, rowHeightPx = ROW_HEIGHT_PX, headerHeightPx = TABLE_HEADER_HEIGHT_PX) {
+  return headerHeightPx + rowIndex * rowHeightPx + rowHeightPx / 2;
 }
 

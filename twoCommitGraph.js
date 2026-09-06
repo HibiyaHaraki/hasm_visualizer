@@ -59,12 +59,17 @@ export function createCommitGraph2D(container, payload, theme, onSelect, onHover
     .filter((node) => node.entityType === "EXPERIENCE")
     .map((node) => [positionKey(node.x, node.y), node.id]));
 
+  // Prefer the FACT table's *actual* rendered header/row height (measured by the caller) over the
+  // nominal constants, so this graph always matches whatever the table really painted at.
+  const rowHeightPx = scrollSync?.rowHeightPx || ROW_HEIGHT_PX;
+  const headerHeightPx = scrollSync?.headerHeightPx ?? TABLE_HEADER_HEIGHT_PX;
+
   // Row grid shared with the HTML FACT table: newest fact at row 0 (top).
   const rowIndexById = computeFactRowIndexById(payload);
   const rowCount = rowIndexById.size || 1;
   const maxZ = Math.max(1, ...payload.nodes3d.map((node) => node.z));
-  const factRowCenterY = (factId) => rowCenterY(rowIndexById.get(factId) ?? 0);
-  const zFallbackY = (z) => TABLE_HEADER_HEIGHT_PX + (1 - z / maxZ) * rowCount * ROW_HEIGHT_PX;
+  const factRowCenterY = (factId) => rowCenterY(rowIndexById.get(factId) ?? 0, rowHeightPx, headerHeightPx);
+  const zFallbackY = (z) => headerHeightPx + (1 - z / maxZ) * rowCount * rowHeightPx;
   // Branch endpoints are exact fact z values (firstFactZ/lastFactZ), so snapping z -> the fact's
   // grid row keeps EXPERIENCE lanes and connectors exactly on their FACT dots at any time scale.
   const rowYByZ = new Map();
@@ -77,7 +82,7 @@ export function createCommitGraph2D(container, payload, theme, onSelect, onHover
   });
 
   const graphWidthPx = Math.max(1, laneIndexByKey.size) * LANE_WIDTH_PX + LANE_LEFT_MARGIN_PX + 40;
-  const contentHeightPx = TABLE_HEADER_HEIGHT_PX + rowCount * ROW_HEIGHT_PX;
+  const contentHeightPx = headerHeightPx + rowCount * rowHeightPx;
 
   // Scrollable content lives in a plain, non-scrolling wrapper moved by `transform: translateY`;
   // the sticky-look header is a separate overlay that never moves, so it needs no CSS `sticky`.
@@ -85,11 +90,21 @@ export function createCommitGraph2D(container, payload, theme, onSelect, onHover
   contentWrapper.style.cssText = "position: absolute; top: 0; left: 0; will-change: transform;";
   container.appendChild(contentWrapper);
 
-  const svg = svgEl("svg", { width: graphWidthPx, height: contentHeightPx, style: "display: block; overflow: visible;" });
+  const svg = svgEl("svg", {
+    width: graphWidthPx,
+    height: contentHeightPx,
+    viewBox: `0 0 ${graphWidthPx} ${contentHeightPx}`,
+    preserveAspectRatio: "none",
+    // Presentation attributes alone can be overridden by a host app's own CSS (e.g. a common
+    // `svg { max-width: 100%; height: auto }` reset), which would rescale every coordinate below
+    // and desync the dots from the table rows. Pin the exact pixel box via `!important` inline
+    // styles so no external stylesheet rule can stretch/shrink this element.
+    style: `display: block !important; overflow: visible !important; width: ${graphWidthPx}px !important; height: ${contentHeightPx}px !important; max-width: none !important; max-height: none !important;`,
+  });
   contentWrapper.appendChild(svg);
 
   const header = document.createElement("div");
-  header.style.cssText = `position: absolute; top: 0; left: 0; right: 0; z-index: 2; height: ${TABLE_HEADER_HEIGHT_PX}px; background: ${theme.textBackgroundColor}; border-bottom: 1px solid ${borderColor};`;
+  header.style.cssText = `position: absolute; top: 0; left: 0; right: 0; z-index: 2; height: ${headerHeightPx}px; background: ${theme.textBackgroundColor}; border-bottom: 1px solid ${borderColor}; box-sizing: border-box;`;
   payload.nodes3d
     .filter((node) => node.entityType === "EXPERIENCE")
     .forEach((node) => {

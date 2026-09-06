@@ -286,6 +286,12 @@ export function HasmVisualizerComponent({
     const cancel = window.cancelAnimationFrame || window.clearTimeout;
     const frameId = schedule(() => {
       if (!active || !sceneRef.current) return;
+      // Measure what the FACT table actually rendered at (font metrics, host CSS, browser zoom can
+      // all nudge this away from the nominal ROW_HEIGHT_PX/TABLE_HEADER_HEIGHT_PX constants), so the
+      // 2D graph's row grid always matches the table pixel-for-pixel instead of merely by assumption.
+      const tableEl = factTableRef.current?.querySelector('table');
+      const measuredHeaderHeightPx = tableEl?.querySelector('thead th')?.getBoundingClientRect().height;
+      const measuredRowHeightPx = tableEl?.querySelector('tbody tr')?.getBoundingClientRect().height;
       disposeSceneRef.current = createGraph(
         sceneRef.current,
         renderPayload,
@@ -300,7 +306,11 @@ export function HasmVisualizerComponent({
         },
         resolvedFactDates,
         viewStateByModeRef.current[viewMode],
-        { onScroll: (nextScrollTop) => syncScrollTop2D(nextScrollTop) }
+        {
+          onScroll: (nextScrollTop) => syncScrollTop2D(nextScrollTop),
+          rowHeightPx: measuredRowHeightPx,
+          headerHeightPx: measuredHeaderHeightPx,
+        }
       );
       // A rebuilt scene (model/filter change) must start from the table's current scroll offset,
       // not the possibly-stale offset captured from the previous scene instance.
