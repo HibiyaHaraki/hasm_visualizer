@@ -96,8 +96,17 @@ export function buildExperienceColorMaps(payload, theme) {
 // with thousands of distinct FACT timestamps would otherwise exhaust GPU memory on the axis alone.
 const MAX_TIMELINE_TICKS = 60;
 
-// Ceiling on FACT meshes handed to the scene, so an unscoped large package degrades instead of freezing.
-export const DEFAULT_MAX_RENDERED_NODES = 4000;
+// Ceiling on FACT meshes handed to the scene, so a scoped large package degrades quickly instead of
+// spending seconds constructing meshes the camera cannot inspect in one view.
+export const DEFAULT_MAX_RENDERED_NODES = 1200;
+
+const FOV_CULLING_MARGIN = 1.2;
+
+function linePositionKey(point) {
+  return Array.isArray(point) && point.length >= 3 && point.every(Number.isFinite)
+    ? `${point[0].toFixed(2)},${point[1].toFixed(2)},${point[2].toFixed(2)}`
+    : "";
+}
 
 /// Trims a layout payload to a renderable size, returning the payload plus a human-readable warning
 /// when nodes were dropped. EXPERIENCE nodes are always kept because branch geometry depends on them.
@@ -110,8 +119,13 @@ export function limitRenderedNodes(payload, maxNodes = DEFAULT_MAX_RENDERED_NODE
   const allFactNodes = nodes.filter((node) => node.entityType === "FACT");
   const factNodes = allFactNodes.slice(0, Math.max(maxNodes - experienceNodes.length, 0));
   const dropped = allFactNodes.length - factNodes.length;
+  const keptPositionKeys = new Set([...experienceNodes, ...factNodes].map((node) => linePositionKey([node.x, node.y, node.z])));
+  const lines3d = (payload.lines3d || []).filter((line) => {
+    if (line.lineType !== "LINK") return true;
+    return keptPositionKeys.has(linePositionKey(line.from)) && keptPositionKeys.has(linePositionKey(line.to));
+  });
   return {
-    payload: { ...payload, nodes3d: [...experienceNodes, ...factNodes] },
+    payload: { ...payload, nodes3d: [...experienceNodes, ...factNodes], lines3d },
     warning: `Showing ${factNodes.length} of ${allFactNodes.length} FACT nodes. Narrow the PERSON or EXPERIENCE scope to see the remaining ${dropped}.`,
   };
 }
@@ -231,6 +245,7 @@ export function createCommitGraph(container, payload, theme, onSelect, onHover, 
     .map((node) => [positionKey(node.x, node.y), node.id]));
   const timelineLines = [];
   const lineMeshes = [];
+  const fovCulledMeshes = [];
   const experienceMeshesById = new Map();
   const factMeshesById = new Map();
   const highlightColor = ensureReadableColor(theme.textColor, theme.textBackgroundColor);
@@ -264,6 +279,7 @@ export function createCommitGraph(container, payload, theme, onSelect, onHover, 
       experienceMeshesById.set(node.id, mesh);
     }
     lineMeshes.push(mesh);
+    fovCulledMeshes.push(mesh);
     scene.add(mesh);
   });
 
@@ -281,8 +297,29 @@ export function createCommitGraph(container, payload, theme, onSelect, onHover, 
     meshes.push(mesh);
     factMeshesById.set(node.id, meshes);
     scene.add(mesh);
+    fovCulledMeshes.push(mesh);
     return mesh;
   });
+
+  const frustum = new THREE.Frustum();
+  const projectionMatrix = new THREE.Matrix4();
+  const cullingSphere = new THREE.Sphere();
+  const updateFovSelection = () => {
+    camera.updateMatrixWorld();
+    projectionMatrix.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
+    frustum.setFromProjectionMatrix(projectionMatrix);
+    fovCulledMeshes.forEach((mesh) => {
+      if (!mesh.geometry.boundingSphere) mesh.geometry.computeBoundingSphere();
+      cullingSphere.copy(mesh.geometry.boundingSphere).applyMatrix4(mesh.matrixWorld);
+      cullingSphere.radius *= FOV_CULLING_MARGIN;
+      mesh.visible = frustum.intersectsSphere(cullingSphere);
+    });
+  };
+
+  const renderVisibleScene = () => {
+    updateFovSelection();
+    renderer.render(scene, camera);
+  };
 
   const setHighlight = (node) => {
     const highlightedIds = new Set(node ? [node.id, ...(node.linkedEntityIds || []), ...(node.parentExperienceIds || [])] : []);
@@ -300,7 +337,7 @@ export function createCommitGraph(container, payload, theme, onSelect, onHover, 
         mesh.material.opacity = highlighted ? 1 : mesh.userData.baseOpacity;
       });
     });
-    renderer.render(scene, camera);
+    renderVisibleScene();
   };
 
   const raycaster = new THREE.Raycaster();
@@ -315,7 +352,7 @@ export function createCommitGraph(container, payload, theme, onSelect, onHover, 
   const intersectEntity = (event) => {
     pointerPosition(event);
     raycaster.setFromCamera(pointer, camera);
-    return raycaster.intersectObjects([...nodes, ...timelineLines])[0]?.object.userData;
+    return raycaster.intersectObjects([...nodes, ...timelineLines].filter((mesh) => mesh.visible))[0]?.object.userData;
   };
   const handleMove = (event) => {
     if (performance.now() - lastHoverAt < 100) return;
@@ -337,11 +374,11 @@ export function createCommitGraph(container, payload, theme, onSelect, onHover, 
     camera.aspect = nextWidth / nextHeight;
     camera.updateProjectionMatrix();
     renderer.setSize(nextWidth, nextHeight);
-    renderer.render(scene, camera);
+    renderVisibleScene();
   };
   window.addEventListener("resize", resize);
-  controls.addEventListener("change", () => renderer.render(scene, camera));
-  renderer.render(scene, camera);
+  controls.addEventListener("change", renderVisibleScene);
+  renderVisibleScene();
 
   const disposeFn = () => {
     window.removeEventListener("resize", resize);

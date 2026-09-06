@@ -8,10 +8,12 @@ import { SAMPLE_HASM_MODELS } from './sampleModels.js';
 import {
   EMPTY_SCOPE,
   countModelEntities,
+  experienceIdOf,
   factIdOf,
   isEmptyScope,
   listExperienceOptions,
   listPersonOptions,
+  personIdOf,
   scopeModel,
 } from './modelScope.js';
 import { getPatternById } from '../hasm_color_pattern/src/index.js';
@@ -25,6 +27,44 @@ const logger = createLogger('hasm-3d-visualizer');
 const DEFAULT_SCOPE_PROMPT_THRESHOLD = 2000;
 
 const selectedValues = (element) => Array.from(element.selectedOptions, (option) => option.value).filter(Boolean);
+
+function readIdList(entity, ...keys) {
+  for (const key of keys) {
+    const value = entity?.[key];
+    if (Array.isArray(value)) return value.map(String);
+  }
+  return [];
+}
+
+function limitModelForLayout(model, maxFacts) {
+  const facts = model?.facts || [];
+  if (!Number.isFinite(maxFacts) || maxFacts <= 0 || facts.length <= maxFacts) {
+    return { model, warning: '' };
+  }
+
+  const factLimit = Math.max(1, Math.floor(maxFacts));
+  const keptFacts = facts.slice(0, factLimit);
+  const keptFactIds = new Set(keptFacts.map(factIdOf));
+  const keptExperienceIds = new Set(keptFacts.flatMap((fact) => readIdList(fact, 'experience_ids', 'experienceIds')));
+  const keptPeopleIds = new Set(keptFacts.flatMap((fact) => readIdList(fact, 'person_ids', 'personIds')));
+
+  const people = (model.people || []).filter((person) => keptPeopleIds.size === 0 || keptPeopleIds.has(personIdOf(person)));
+  const experiences = (model.experiences || []).filter((experience) => keptExperienceIds.has(experienceIdOf(experience)));
+  const keptEntityIds = new Set([
+    ...people.map(personIdOf),
+    ...experiences.map(experienceIdOf),
+    ...keptFactIds,
+  ]);
+  const links = (model.links || []).filter((link) => {
+    const relatedIds = readIdList(link, 'related_ids', 'relatedIds');
+    return relatedIds.length > 0 && relatedIds.every((id) => keptEntityIds.has(id));
+  });
+
+  return {
+    model: { ...model, people, experiences, facts: keptFacts, links },
+    warning: `Loading ${keptFacts.length} of ${facts.length} FACT nodes to keep visualization responsive. Narrow the PERSON or EXPERIENCE scope to inspect more.`,
+  };
+}
 
 // Native multi-selects only accumulate with Ctrl/Cmd-click, which is easy to miss and unavailable
 // on touch. A plain click toggles just the clicked option and keeps the rest of the selection;
@@ -69,6 +109,7 @@ export function HasmVisualizerComponent({
   const [viewMode, setViewMode] = useState('3d');
   const [hoveredNode, setHoveredNode] = useState(null);
   const [selectedNode, setSelectedNode] = useState(null);
+  const [isSceneRendering, setIsSceneRendering] = useState(false);
 
   const currentSample = SAMPLE_HASM_MODELS[selectedModelIndex] || SAMPLE_HASM_MODELS[0];
   const activeModel = model || currentSample.model;
@@ -79,6 +120,11 @@ export function HasmVisualizerComponent({
   const scopedModel = useMemo(() => scopeModel(activeModel, scope), [activeModel, scope]);
   const totalEntityCount = useMemo(() => countModelEntities(activeModel), [activeModel]);
   const scopedEntityCount = useMemo(() => countModelEntities(scopedModel), [scopedModel]);
+  const usesRenderBudget = viewMode === '3d';
+  const { model: layoutModel, warning: layoutBudgetWarning } = useMemo(
+    () => (usesRenderBudget ? limitModelForLayout(scopedModel, maxRenderedNodes) : { model: scopedModel, warning: '' }),
+    [scopedModel, maxRenderedNodes, usesRenderBudget],
+  );
   const needsScope = isEmptyScope(scope) && totalEntityCount > scopePromptThreshold;
 
   // Layout is computed once per model/filter/scope change and shared by the graph effect below and
@@ -96,8 +142,8 @@ export function HasmVisualizerComponent({
     // Compute layout through the host when supplied, otherwise via the client-side JS
     // implementation kept in parity with the Rust backend.
     const request = computeLayout
-      ? computeLayout(scopedModel, filter, { isFilterUpdate })
-      : computeVisualizerLayoutJS(scopedModel, filter);
+      ? computeLayout(layoutModel, filter, { isFilterUpdate })
+      : computeVisualizerLayoutJS(layoutModel, filter);
 
     Promise.resolve(request)
       .then((payload) => {
@@ -111,12 +157,16 @@ export function HasmVisualizerComponent({
       });
 
     return () => { active = false; };
-  }, [scopedModel, filter, needsScope, computeLayout, scopedEntityCount, scope]);
+  }, [layoutModel, filter, needsScope, computeLayout, scopedEntityCount, scope]);
 
   const { payload: renderPayload, warning: budgetWarning } = useMemo(
-    () => (layoutPayload ? limitRenderedNodes(layoutPayload, maxRenderedNodes) : { payload: null, warning: '' }),
-    [layoutPayload, maxRenderedNodes],
+    () => {
+      if (!layoutPayload) return { payload: null, warning: '' };
+      return usesRenderBudget ? limitRenderedNodes(layoutPayload, maxRenderedNodes) : { payload: layoutPayload, warning: '' };
+    },
+    [layoutPayload, maxRenderedNodes, usesRenderBudget],
   );
+  const combinedBudgetWarning = [layoutBudgetWarning, budgetWarning].filter(Boolean).join(' ');
 
   // 2D-mode helpers: fact rows (newest first, matching graph rows) and the lane count that
   // drives the responsive left/right width split (more parallel EXPERIENCEs -> wider graph pane).
@@ -219,24 +269,35 @@ export function HasmVisualizerComponent({
     // Instantiate the graph via the 3D or 2D Three.js engine; both share the same layout
     // payload and color derivation, so FACT/EXPERIENCE colors match across modes.
     const createGraph = viewMode === '2d' ? createCommitGraph2D : createCommitGraph;
-    disposeSceneRef.current = createGraph(
-      sceneRef.current,
-      renderPayload,
-      themeColors,
-      handleSelectNode,
-      (node, event) => {
-        if (node) {
-          setHoveredNode({ ...node, x: event.clientX, y: event.clientY });
-        } else {
-          setHoveredNode(null);
-        }
-      },
-      resolvedFactDates,
-      viewStateByModeRef.current[viewMode],
-      { onScroll: (nextScrollTop) => setScrollTop2D(clampScroll2D(nextScrollTop)) }
-    );
+    setIsSceneRendering(true);
+    let active = true;
+    const schedule = window.requestAnimationFrame || ((callback) => window.setTimeout(callback, 0));
+    const cancel = window.cancelAnimationFrame || window.clearTimeout;
+    const frameId = schedule(() => {
+      if (!active || !sceneRef.current) return;
+      disposeSceneRef.current = createGraph(
+        sceneRef.current,
+        renderPayload,
+        themeColors,
+        handleSelectNode,
+        (node, event) => {
+          if (node) {
+            setHoveredNode({ ...node, x: event.clientX, y: event.clientY });
+          } else {
+            setHoveredNode(null);
+          }
+        },
+        resolvedFactDates,
+        viewStateByModeRef.current[viewMode],
+        { onScroll: (nextScrollTop) => setScrollTop2D(clampScroll2D(nextScrollTop)) }
+      );
+      if (active) setIsSceneRendering(false);
+    });
 
     return () => {
+      active = false;
+      cancel(frameId);
+      setIsSceneRendering(false);
       if (typeof disposeSceneRef.current?.getViewState === 'function') {
         const captured = disposeSceneRef.current.getViewState();
         const isComplete = viewMode === '2d'
@@ -494,7 +555,13 @@ export function HasmVisualizerComponent({
           <div className="graph-canvas HasmVisualizer_Canvas" ref={sceneRef} />
         )}
 
-        {budgetWarning ? <p className="graph-warning HasmVisualizer_BudgetWarning">{budgetWarning}</p> : null}
+        {combinedBudgetWarning ? <p className="graph-warning HasmVisualizer_BudgetWarning">{combinedBudgetWarning}</p> : null}
+
+        {isSceneRendering ? (
+          <div className="HasmVisualizer_RenderSpinner" role="status" aria-label={labels?.rendering || 'Rendering visualizer'}>
+            <span className="HasmVisualizer_RenderSpinnerIcon" aria-hidden="true" />
+          </div>
+        ) : null}
 
         {overlaySlot}
 
