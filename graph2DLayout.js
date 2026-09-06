@@ -1,15 +1,13 @@
 import { positionKey } from "./threeCommitGraph.js";
 
-// Shared lane/row geometry for the 2D mode: the Three.js graph panel and the HTML
+// Shared lane/row geometry for the 2D mode: the SVG commit-graph panel and the HTML
 // FACT table must agree on lane order and row positions so rows stay aligned.
+// Both panes render in real CSS pixels (no world-unit/camera conversion), so a FACT's
+// row center here is defined identically to where the HTML table renders that row.
 
-export const LANE_GAP = 3;
-export const ROW_GAP = 2.2;
-// Fixed pixel metrics shared with the FACT table rows: the 2D camera uses these to convert
-// row indices to world Y at a constant world-per-pixel ratio, so graph dots always render
-// exactly beside their table rows — no zoom scaling, so alignment survives scrolling.
 export const ROW_HEIGHT_PX = 30;
 export const TABLE_HEADER_HEIGHT_PX = 37;
+export const LANE_WIDTH_PX = 56;
 
 // One lane per parallel EXPERIENCE branch (root branches included), plus fallback
 // lanes for any other endpoint position (e.g. PERSON nodes referenced by LINK lines).
@@ -31,10 +29,6 @@ export function computeLaneIndexByKey(payload) {
   return laneIndexByKey;
 }
 
-export function computeMaxZ(payload) {
-  return Math.max(1, ...payload.nodes3d.map((node) => node.z));
-}
-
 // Row index shared by the 2D graph and the FACT table: rows are ordered by z
 // (newest first, so the table reads newest → oldest top to bottom), and a fact that
 // appears on multiple lanes (ancestor EXPERIENCE copies) shares a single row.
@@ -51,9 +45,14 @@ export function computeFactRowIndexById(payload) {
 }
 
 export function laneX(laneIndexByKey, key) {
-  return (laneIndexByKey.get(key) ?? 0) * LANE_GAP;
+  return (laneIndexByKey.get(key) ?? 0) * LANE_WIDTH_PX;
 }
 
-export function rowY(rowCount, rowIndex) {
-  return (rowCount - 1 - rowIndex) * ROW_GAP;
+// Pixel Y, measured from the top of the scrollable content (header included), of the
+// vertical center of a row — the exact same formula the HTML table renders that row at
+// (TABLE_HEADER_HEIGHT_PX + rowIndex * ROW_HEIGHT_PX + half a row). Sharing one native
+// `scrollTop` between the two panes is therefore enough to keep them pixel-aligned.
+export function rowCenterY(rowIndex) {
+  return TABLE_HEADER_HEIGHT_PX + rowIndex * ROW_HEIGHT_PX + ROW_HEIGHT_PX / 2;
 }
+
