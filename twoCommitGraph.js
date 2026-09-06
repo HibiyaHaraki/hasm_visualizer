@@ -115,15 +115,21 @@ export function createCommitGraph2D(container, payload, theme, onSelect, onHover
 
   // Vertical-scroll-only navigation: the wheel scrolls the shared time axis (and the FACT table
   // via onScroll); drag/zoom gestures are disabled so row alignment can never be broken.
+  // `scrollTop` here is defined identically to the HTML table's native `scrollTop`: the pixel
+  // distance from the top of the (header + rows) content to the top of the viewport. Deriving
+  // camera.position.y from that exact definition (rather than an ad-hoc centering offset) is
+  // what keeps a FACT dot and its table row pinned to the same screen pixel at every scroll
+  // position and at every pane height.
   const viewportHeightWorld = () => camera.top - camera.bottom;
   const applyScrollTop = (scrollTop) => {
-    const centeredScroll = scrollTop - (container.clientHeight - TABLE_HEADER_HEIGHT_PX) / 2;
-    camera.position.y = totalGraphHeight - centeredScroll * worldPerPixel - viewportHeightWorld() / 2;
+    camera.position.y =
+      totalGraphHeight - scrollTop * worldPerPixel - viewportHeightWorld() / 2 + TABLE_HEADER_HEIGHT_PX * worldPerPixel;
     renderer.render(scene, camera);
   };
   const currentScrollTop = () => {
-    const centeredScroll = (totalGraphHeight - camera.position.y - viewportHeightWorld() / 2) / worldPerPixel;
-    return centeredScroll + (container.clientHeight - TABLE_HEADER_HEIGHT_PX) / 2;
+    return (
+      (totalGraphHeight - camera.position.y - viewportHeightWorld() / 2) / worldPerPixel + TABLE_HEADER_HEIGHT_PX
+    );
   };
   const handleWheel = (event) => {
     event.preventDefault();

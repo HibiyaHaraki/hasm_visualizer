@@ -190,11 +190,15 @@ export function HasmVisualizerComponent({
   // FACT and its table row stay at the same height no matter which pane is scrolled.
   const [scrollTop2D, setScrollTop2D] = useState(0);
   const factTableRef = useRef(null);
-  const maxScrollTop2D = Math.max(
-    0,
-    factRows.length * ROW_HEIGHT_PX + TABLE_HEADER_HEIGHT_PX - 360
-  );
-  const clampScroll2D = (value) => Math.min(Math.max(value, 0), maxScrollTop2D);
+  // Clamp against the FACT table's own measured scroll extent (not an assumed pane height), so the
+  // graph and table can never be driven to different scroll ranges and lose row/dot alignment.
+  const clampScroll2D = useCallback((value) => {
+    const el = factTableRef.current;
+    const maxScrollTop = el
+      ? Math.max(0, el.scrollHeight - el.clientHeight)
+      : Math.max(0, factRows.length * ROW_HEIGHT_PX + TABLE_HEADER_HEIGHT_PX);
+    return Math.min(Math.max(value, 0), maxScrollTop);
+  }, [factRows.length]);
   useEffect(() => {
     if (viewMode !== '2d') return;
     if (factTableRef.current) factTableRef.current.scrollTop = scrollTop2D;
