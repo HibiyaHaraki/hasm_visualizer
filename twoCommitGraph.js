@@ -14,19 +14,22 @@ import {
   rowCenterY,
 } from "./graph2DLayout.js";
 
-// Git-Extensions-style 2D commit graph rendered as plain SVG inside a native `overflow: auto`
-// pane — not Three.js. The pane's DOM/box model is therefore identical to the HTML FACT table
-// beside it (same header height, same fixed row height), so sharing one `scrollTop` value
-// between the two panes keeps every FACT dot pixel-aligned with its table row; there is no
-// world-unit/camera conversion left to drift. Native pointer events give free, real CSS `:hover`
-// behavior on nodes/branches. Colors come from the exact same helpers as the 3D renderer, so
-// FACT and EXPERIENCE colors are identical between 2D and 3D modes.
+// Git-Extensions-style 2D commit graph rendered as plain SVG — not Three.js. The pane never
+// scrolls natively (no scrollbar, no rubber-band momentum of its own): it is a fixed-size overlay
+// whose content is repositioned with a CSS transform driven by the same `scrollTop` value as the
+// HTML FACT table beside it. The FACT table is the sole natively-scrollable element, so there is
+// only ever one source of scroll physics and nothing left to fight over at the top/bottom edges.
+// Colors come from the exact same helpers as the 3D renderer, so FACT and EXPERIENCE colors are
+// identical between 2D and 3D modes. Native pointer events give real CSS `:hover` on nodes/branches.
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 const FACT_RADIUS_PX = 7;
 const BRANCH_STROKE_PX = 4;
 const LINK_STROKE_PX = 1.5;
 const LANE_LABEL_GAP_PX = 10;
+// Keeps lane 0's dots/branch lines/labels clear of the pane's left edge (a 0px-inset element would
+// otherwise be half-clipped, hiding the first EXPERIENCE).
+const LANE_LEFT_MARGIN_PX = FACT_RADIUS_PX + 14;
 
 function svgEl(tag, attrs = {}) {
   const el = document.createElementNS(SVG_NS, tag);
@@ -41,8 +44,8 @@ function readThemeVar(container, name, fallback) {
 
 export function createCommitGraph2D(container, payload, theme, onSelect, onHover, factDatesById, initialViewState, scrollSync) {
   container.textContent = "";
-  container.style.overflowY = "auto";
-  container.style.overflowX = "hidden";
+  container.style.position = "relative";
+  container.style.overflow = "hidden";
   container.style.background = theme.textBackgroundColor;
 
   const entityColors = buildEntityColors(theme);
@@ -51,6 +54,7 @@ export function createCommitGraph2D(container, payload, theme, onSelect, onHover
   const borderColor = readThemeVar(container, "--theme-border", "rgba(128,128,128,0.4)");
 
   const laneIndexByKey = computeLaneIndexByKey(payload);
+  const laneXPx = (key) => laneX(laneIndexByKey, key) + LANE_LEFT_MARGIN_PX;
   const experienceIdByPositionKey = new Map(payload.nodes3d
     .filter((node) => node.entityType === "EXPERIENCE")
     .map((node) => [positionKey(node.x, node.y), node.id]));
@@ -68,17 +72,24 @@ export function createCommitGraph2D(container, payload, theme, onSelect, onHover
     .filter((node) => node.entityType === "FACT")
     .forEach((node) => rowYByZ.set(node.z, factRowCenterY(node.id)));
   const toXY = (point) => ({
-    x: laneX(laneIndexByKey, positionKey(point[0], point[1])),
+    x: laneXPx(positionKey(point[0], point[1])),
     y: rowYByZ.get(point[2]) ?? zFallbackY(point[2]),
   });
 
-  const graphWidthPx = Math.max(1, laneIndexByKey.size) * LANE_WIDTH_PX + 40;
+  const graphWidthPx = Math.max(1, laneIndexByKey.size) * LANE_WIDTH_PX + LANE_LEFT_MARGIN_PX + 40;
   const contentHeightPx = TABLE_HEADER_HEIGHT_PX + rowCount * ROW_HEIGHT_PX;
 
-  // Sticky lane-name header, in normal document flow exactly like the table's <th> row, so it
-  // reserves the same TABLE_HEADER_HEIGHT_PX and scrolls out identically.
+  // Scrollable content lives in a plain, non-scrolling wrapper moved by `transform: translateY`;
+  // the sticky-look header is a separate overlay that never moves, so it needs no CSS `sticky`.
+  const contentWrapper = document.createElement("div");
+  contentWrapper.style.cssText = "position: absolute; top: 0; left: 0; will-change: transform;";
+  container.appendChild(contentWrapper);
+
+  const svg = svgEl("svg", { width: graphWidthPx, height: contentHeightPx, style: "display: block; overflow: visible;" });
+  contentWrapper.appendChild(svg);
+
   const header = document.createElement("div");
-  header.style.cssText = `position: sticky; top: 0; z-index: 2; height: ${TABLE_HEADER_HEIGHT_PX}px; background: ${theme.textBackgroundColor}; border-bottom: 1px solid ${borderColor};`;
+  header.style.cssText = `position: absolute; top: 0; left: 0; right: 0; z-index: 2; height: ${TABLE_HEADER_HEIGHT_PX}px; background: ${theme.textBackgroundColor}; border-bottom: 1px solid ${borderColor};`;
   payload.nodes3d
     .filter((node) => node.entityType === "EXPERIENCE")
     .forEach((node) => {
@@ -86,16 +97,13 @@ export function createCommitGraph2D(container, payload, theme, onSelect, onHover
       const trunkColor = trunkColorByPositionKey.get(key) || entityColors.EXPERIENCE;
       const label = document.createElement("span");
       label.textContent = node.label;
-      label.style.cssText = `position: absolute; left: ${laneX(laneIndexByKey, key) + LANE_LABEL_GAP_PX}px; top: 50%; transform: translateY(-50%); color: ${trunkColor}; font-weight: 700; font-size: 0.78rem; white-space: nowrap;`;
+      label.style.cssText = `position: absolute; left: ${laneXPx(key) + LANE_LABEL_GAP_PX}px; top: 50%; transform: translateY(-50%); color: ${trunkColor}; font-weight: 700; font-size: 0.78rem; white-space: nowrap;`;
       header.appendChild(label);
     });
   container.appendChild(header);
 
-  const svg = svgEl("svg", { width: graphWidthPx, height: contentHeightPx, style: "display: block; overflow: visible;" });
-  container.appendChild(svg);
-
   const nodeById = new Map(payload.nodes3d.map((node) => [node.id, node]));
-  const trackedElements = []; // { element, node, baseColor, baseOpacity }
+  const trackedElements = []; // { element, node, baseColor, baseOpacity, isStroke }
   const experienceElementsById = new Map();
   const factElementsById = new Map();
 
@@ -160,7 +168,7 @@ export function createCommitGraph2D(container, payload, theme, onSelect, onHover
       const color = factColorByPositionKey.get(key) || entityColors.FACT;
       const opacity = node.isDirectFact ? 1 : 0.32;
       const circle = svgEl("circle", {
-        cx: laneX(laneIndexByKey, key), cy: factRowCenterY(node.id), r: FACT_RADIUS_PX,
+        cx: laneXPx(key), cy: factRowCenterY(node.id), r: FACT_RADIUS_PX,
         fill: color, "fill-opacity": opacity,
       });
       circle.style.cursor = "pointer";
@@ -192,24 +200,31 @@ export function createCommitGraph2D(container, payload, theme, onSelect, onHover
     });
   }
 
-  // Native scroll: the browser drives both the FACT dots and the sticky lane header, so the pane
-  // needs no wheel/camera handling at all — just relaying its own scrollTop to the table (and vice
-  // versa via setScrollTop below).
-  const handleScroll = () => scrollSync?.onScroll(container.scrollTop);
-  container.addEventListener("scroll", handleScroll, { passive: true });
+  // The FACT table owns real scrolling; this pane only mirrors its scrollTop via transform, so
+  // scroll physics (momentum, rubber-banding) exist in exactly one place and can't fight themselves.
+  let scrollTop = initialViewState && Number.isFinite(initialViewState.scrollTop) ? initialViewState.scrollTop : 0;
+  const applyTransform = () => { contentWrapper.style.transform = `translateY(${-scrollTop}px)`; };
+  const setScrollTop = (nextScrollTop) => {
+    scrollTop = nextScrollTop;
+    applyTransform();
+  };
+  applyTransform();
 
-  const restoredScrollTop =
-    initialViewState && Number.isFinite(initialViewState.scrollTop) ? initialViewState.scrollTop : 0;
-  container.scrollTop = restoredScrollTop;
+  // Forward wheel input to the shared scroll state (the table applies + clamps it); this pane has
+  // no native scroll of its own so the browser would otherwise just ignore the wheel here.
+  const handleWheel = (event) => {
+    event.preventDefault();
+    scrollSync?.onScroll(scrollTop + event.deltaY);
+  };
+  container.addEventListener("wheel", handleWheel, { passive: false });
 
   const disposeFn = () => {
-    container.removeEventListener("scroll", handleScroll);
+    container.removeEventListener("wheel", handleWheel);
     container.textContent = "";
-    container.style.overflowY = "";
-    container.style.overflowX = "";
+    container.style.overflow = "";
   };
-  disposeFn.getViewState = () => ({ scrollTop: container.scrollTop });
-  disposeFn.setScrollTop = (scrollTop) => { container.scrollTop = scrollTop; };
+  disposeFn.getViewState = () => ({ scrollTop });
+  disposeFn.setScrollTop = setScrollTop;
   // Lets the FACT table emphasize graph dots when a row is hovered.
   disposeFn.setHighlight = setHighlight;
   return disposeFn;

@@ -187,8 +187,10 @@ export function HasmVisualizerComponent({
   const graphPaneWidthPercent = Math.min(72, Math.max(30, laneCount * 12));
 
   // Shared vertical scroll offset between the 2D commit graph and the FACT table, so the dot for a
-  // FACT and its table row stay at the same height no matter which pane is scrolled.
-  const [scrollTop2D, setScrollTop2D] = useState(0);
+  // FACT and its table row stay at the same height no matter which pane is scrolled. Kept as a ref
+  // (not React state): syncing through setState+useEffect adds a render round trip between the two
+  // panes updating, which is visible as jitter/shaking during fast or momentum scrolling.
+  const scrollTop2DRef = useRef(0);
   const factTableRef = useRef(null);
   // Clamp against the FACT table's own measured scroll extent (not an assumed pane height), so the
   // graph and table can never be driven to different scroll ranges and lose row/dot alignment.
@@ -199,11 +201,16 @@ export function HasmVisualizerComponent({
       : Math.max(0, factRows.length * ROW_HEIGHT_PX + TABLE_HEADER_HEIGHT_PX);
     return Math.min(Math.max(value, 0), maxScrollTop);
   }, [factRows.length]);
-  useEffect(() => {
-    if (viewMode !== '2d') return;
-    if (factTableRef.current) factTableRef.current.scrollTop = scrollTop2D;
-    disposeSceneRef.current?.setScrollTop?.(scrollTop2D);
-  }, [scrollTop2D, viewMode]);
+  // Imperatively pushes a scroll offset to both panes in one synchronous call, so the table row and
+  // graph dot move together on the very same frame instead of one lagging behind a React re-render.
+  const syncScrollTop2D = useCallback((value) => {
+    const clamped = clampScroll2D(value);
+    scrollTop2DRef.current = clamped;
+    if (factTableRef.current && factTableRef.current.scrollTop !== clamped) {
+      factTableRef.current.scrollTop = clamped;
+    }
+    disposeSceneRef.current?.setScrollTop?.(clamped);
+  }, [clampScroll2D]);
 
   // Mirror table-row hover onto the 2D graph so the corresponding FACT dots are emphasized.
   useEffect(() => {
@@ -293,11 +300,11 @@ export function HasmVisualizerComponent({
         },
         resolvedFactDates,
         viewStateByModeRef.current[viewMode],
-        { onScroll: (nextScrollTop) => setScrollTop2D(clampScroll2D(nextScrollTop)) }
+        { onScroll: (nextScrollTop) => syncScrollTop2D(nextScrollTop) }
       );
       // A rebuilt scene (model/filter change) must start from the table's current scroll offset,
       // not the possibly-stale offset captured from the previous scene instance.
-      if (viewMode === '2d') disposeSceneRef.current.setScrollTop?.(clampScroll2D(scrollTop2D));
+      if (viewMode === '2d') syncScrollTop2D(scrollTop2DRef.current);
       if (active) setIsSceneRendering(false);
     });
 
@@ -523,7 +530,7 @@ export function HasmVisualizerComponent({
               className="HasmVisualizer_FactTablePane"
               style={{ width: `${100 - graphPaneWidthPercent}%` }}
               ref={factTableRef}
-              onScroll={(event) => setScrollTop2D(clampScroll2D(event.currentTarget.scrollTop))}
+              onScroll={(event) => syncScrollTop2D(event.currentTarget.scrollTop)}
             >
               <table className="HasmVisualizer_FactTable">
                 <thead>

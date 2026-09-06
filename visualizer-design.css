@@ -75,8 +75,9 @@
   inset: auto;
   height: 100%;
   min-width: 0;
-  overflow-y: auto;
-  overflow-x: hidden;
+  /* Never scrolls natively: its content is mirrored via transform from the FACT table's
+     scrollTop, so there is exactly one scrollable element and one set of scroll physics. */
+  overflow: hidden;
 }
 /* Native hover feedback for SVG FACT dots / EXPERIENCE branch lines in the 2D graph pane. */
 .HasmVisualizer_Container .HasmVisualizer_GraphHoverable2D {
