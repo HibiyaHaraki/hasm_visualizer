@@ -130,20 +130,44 @@
 /* PERSON / EXPERIENCE scope selection */
 .HasmVisualizer_Container .HasmVisualizer_ScopeGroup {
   display: flex;
-  align-items: end;
-  gap: 8px;
+  align-items: start;
+  gap: 16px;
   flex-wrap: wrap;
+}
+.HasmVisualizer_Container .HasmVisualizer_ScopeField {
+  display: grid;
+  gap: 5px;
+  align-content: start;
 }
 .HasmVisualizer_Container .HasmVisualizer_ScopeSelect {
   min-width: 160px;
   max-width: 240px;
   font-size: 0.82rem;
 }
+.HasmVisualizer_Container .HasmVisualizer_ScopeSelect option {
+  padding: 3px 6px;
+  cursor: pointer;
+}
+.HasmVisualizer_Container .HasmVisualizer_ScopeSelect option:checked {
+  color: var(--theme-on-accent, var(--theme-textbackground));
+  background: var(--theme-primary) linear-gradient(0deg, var(--theme-primary) 0%, var(--theme-primary) 100%);
+}
+.HasmVisualizer_Container .HasmVisualizer_ScopeActions {
+  display: flex;
+  gap: 6px;
+}
 .HasmVisualizer_Container .HasmVisualizer_ScopeSummary {
   color: var(--theme-muted);
   font-size: 0.78rem;
   letter-spacing: 0.03em;
   white-space: nowrap;
+}
+.HasmVisualizer_Container .HasmVisualizer_ScopeHint {
+  max-width: 22ch;
+  color: var(--theme-muted);
+  font-size: 0.72rem;
+  letter-spacing: 0.03em;
+  line-height: 1.7;
 }
 .HasmVisualizer_Container .HasmVisualizer_ScopePrompt {
   position: absolute;

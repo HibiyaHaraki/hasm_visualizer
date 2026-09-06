@@ -26,6 +26,19 @@ const DEFAULT_SCOPE_PROMPT_THRESHOLD = 2000;
 
 const selectedValues = (element) => Array.from(element.selectedOptions, (option) => option.value).filter(Boolean);
 
+// Native multi-selects only accumulate with Ctrl/Cmd-click, which is easy to miss and unavailable
+// on touch. A plain click toggles just the clicked option and keeps the rest of the selection;
+// modifier-clicks and keyboard interaction fall through to the browser's own behaviour.
+function toggleOptionOnPlainClick(event, apply) {
+  const option = event.target;
+  if (option.tagName !== 'OPTION' || event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey) return;
+  const select = event.currentTarget;
+  event.preventDefault();
+  select.focus();
+  option.selected = !option.selected;
+  apply(selectedValues(select));
+}
+
 // 3D commit graph surface. Without a `model` prop it runs as a self-contained demo over the bundled
 // sample packages; with `model` and `computeLayout` it renders a host application's live package,
 // so copying this folder alongside src/hasm_color_pattern and src/hasm_logger reproduces both.
@@ -166,6 +179,18 @@ export function HasmVisualizerComponent({
     if (onSelectNode) onSelectNode(node);
   }, [onSelectNode]);
 
+  const applyPersonIds = useCallback((personIds) => {
+    // EXPERIENCE picks that no longer belong to any selected PERSON are dropped.
+    const allowed = new Set(listExperienceOptions(activeModel, personIds).map((option) => option.id));
+    setScope((current) => ({ personIds, experienceIds: current.experienceIds.filter((id) => allowed.has(id)) }));
+    setSelectedNode(null);
+  }, [activeModel]);
+
+  const applyExperienceIds = useCallback((experienceIds) => {
+    setScope((current) => ({ ...current, experienceIds }));
+    setSelectedNode(null);
+  }, []);
+
   useEffect(() => {
     if (!sceneRef.current || !renderPayload) return undefined;
 
@@ -261,57 +286,97 @@ export function HasmVisualizerComponent({
           </div>
         )}
 
-        {/* SCOPE SELECTION: limits how much of a large package is laid out and rendered. */}
+        {/* SCOPE SELECTION: limits how much of a large package is laid out and rendered.
+            Both controls accept any number of entries; a plain click toggles one entry. */}
         <div className="HasmVisualizer_ControlGroup HasmVisualizer_ScopeGroup">
-          <label className="HasmVisualizer_Label" htmlFor="hasm-visualizer-person-scope">
-            {labels?.personScope || 'PERSON scope'}
-          </label>
-          <select
-            id="hasm-visualizer-person-scope"
-            className="HasmVisualizer_Select HasmVisualizer_ScopeSelect"
-            multiple
-            size={Math.min(Math.max(personOptions.length, 2), 5)}
-            value={scope.personIds}
-            onChange={(event) => {
-              const personIds = selectedValues(event.currentTarget);
-              const allowed = new Set(listExperienceOptions(activeModel, personIds).map((option) => option.id));
-              setScope({ personIds, experienceIds: scope.experienceIds.filter((id) => allowed.has(id)) });
-              setSelectedNode(null);
-            }}
-          >
-            {personOptions.map((option) => (
-              <option key={option.id} value={option.id}>{option.label}</option>
-            ))}
-          </select>
+          <div className="HasmVisualizer_ScopeField">
+            <label className="HasmVisualizer_Label" htmlFor="hasm-visualizer-person-scope">
+              {labels?.personScope || 'PERSON scope'}
+            </label>
+            <select
+              id="hasm-visualizer-person-scope"
+              className="HasmVisualizer_Select HasmVisualizer_ScopeSelect"
+              multiple
+              size={Math.min(Math.max(personOptions.length, 2), 8)}
+              value={scope.personIds}
+              onMouseDown={(event) => toggleOptionOnPlainClick(event, applyPersonIds)}
+              onChange={(event) => applyPersonIds(selectedValues(event.currentTarget))}
+            >
+              {personOptions.map((option) => (
+                <option key={option.id} value={option.id}>{option.label}</option>
+              ))}
+            </select>
+            <div className="HasmVisualizer_ScopeActions">
+              <button
+                type="button"
+                className="HasmVisualizer_ViewToggleButton"
+                onClick={() => applyPersonIds(personOptions.map((option) => option.id))}
+                disabled={personOptions.length === 0 || scope.personIds.length === personOptions.length}
+              >
+                {labels?.selectAll || 'All'}
+              </button>
+              <button
+                type="button"
+                className="HasmVisualizer_ViewToggleButton"
+                onClick={() => applyPersonIds([])}
+                disabled={scope.personIds.length === 0}
+              >
+                {labels?.selectNone || 'None'}
+              </button>
+            </div>
+          </div>
 
-          <label className="HasmVisualizer_Label" htmlFor="hasm-visualizer-experience-scope">
-            {labels?.experienceScope || 'EXPERIENCE scope'}
-          </label>
-          <select
-            id="hasm-visualizer-experience-scope"
-            className="HasmVisualizer_Select HasmVisualizer_ScopeSelect"
-            multiple
-            size={Math.min(Math.max(experienceOptions.length, 2), 5)}
-            value={scope.experienceIds}
-            onChange={(event) => {
-              setScope({ ...scope, experienceIds: selectedValues(event.currentTarget) });
-              setSelectedNode(null);
-            }}
-          >
-            {experienceOptions.map((option) => (
-              <option key={option.id} value={option.id}>{option.label}</option>
-            ))}
-          </select>
+          <div className="HasmVisualizer_ScopeField">
+            <label className="HasmVisualizer_Label" htmlFor="hasm-visualizer-experience-scope">
+              {labels?.experienceScope || 'EXPERIENCE scope'}
+            </label>
+            <select
+              id="hasm-visualizer-experience-scope"
+              className="HasmVisualizer_Select HasmVisualizer_ScopeSelect"
+              multiple
+              size={Math.min(Math.max(experienceOptions.length, 2), 8)}
+              value={scope.experienceIds}
+              onMouseDown={(event) => toggleOptionOnPlainClick(event, applyExperienceIds)}
+              onChange={(event) => applyExperienceIds(selectedValues(event.currentTarget))}
+            >
+              {experienceOptions.map((option) => (
+                <option key={option.id} value={option.id}>{option.label}</option>
+              ))}
+            </select>
+            <div className="HasmVisualizer_ScopeActions">
+              <button
+                type="button"
+                className="HasmVisualizer_ViewToggleButton"
+                onClick={() => applyExperienceIds(experienceOptions.map((option) => option.id))}
+                disabled={experienceOptions.length === 0 || scope.experienceIds.length === experienceOptions.length}
+              >
+                {labels?.selectAll || 'All'}
+              </button>
+              <button
+                type="button"
+                className="HasmVisualizer_ViewToggleButton"
+                onClick={() => applyExperienceIds([])}
+                disabled={scope.experienceIds.length === 0}
+              >
+                {labels?.selectNone || 'None'}
+              </button>
+            </div>
+          </div>
 
-          <button
-            type="button"
-            className="HasmVisualizer_ViewToggleButton"
-            onClick={() => { setScope(EMPTY_SCOPE); setSelectedNode(null); }}
-            disabled={isEmptyScope(scope)}
-          >
-            {labels?.clearScope || 'Clear scope'}
-          </button>
-          <span className="HasmVisualizer_ScopeSummary" role="status">{scopeSummary}</span>
+          <div className="HasmVisualizer_ScopeField">
+            <button
+              type="button"
+              className="HasmVisualizer_ViewToggleButton"
+              onClick={() => { setScope(EMPTY_SCOPE); setSelectedNode(null); }}
+              disabled={isEmptyScope(scope)}
+            >
+              {labels?.clearScope || 'Clear scope'}
+            </button>
+            <span className="HasmVisualizer_ScopeSummary" role="status">{scopeSummary}</span>
+            <span className="HasmVisualizer_ScopeHint">
+              {labels?.scopeHint || 'Click to toggle. Select any number of entries.'}
+            </span>
+          </div>
         </div>
 
         <div className="HasmVisualizer_ControlGroup">
