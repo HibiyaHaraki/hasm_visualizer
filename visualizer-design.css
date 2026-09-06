@@ -85,6 +85,7 @@
 .HasmVisualizer_Container .HasmVisualizer_FactTable {
   width: 100%;
   border-collapse: collapse;
+  table-layout: fixed;
   font-size: 0.8rem;
 }
 /* Fixed 30px rows and a 37px header keep the table in lock-step with the 2D graph's row grid. */
@@ -102,6 +103,8 @@
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
+/* A row must never wrap onto a second line: any growth beyond ROW_HEIGHT_PX (graph2DLayout.js)
+   desyncs every row below it from its FACT dot on the Three.js canvas. */
 .HasmVisualizer_Container .HasmVisualizer_FactTable td {
   height: 30px;
   box-sizing: border-box;
@@ -109,6 +112,13 @@
   border-bottom: 1px solid var(--theme-border);
   color: var(--theme-text);
   vertical-align: middle;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.HasmVisualizer_Container .HasmVisualizer_FactTable th:last-child,
+.HasmVisualizer_Container .HasmVisualizer_FactTable td:last-child {
+  width: 92px;
 }
 .HasmVisualizer_Container .HasmVisualizer_FactTable tbody tr {
   cursor: pointer;

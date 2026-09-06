@@ -295,6 +295,9 @@ export function HasmVisualizerComponent({
         viewStateByModeRef.current[viewMode],
         { onScroll: (nextScrollTop) => setScrollTop2D(clampScroll2D(nextScrollTop)) }
       );
+      // A rebuilt scene (model/filter change) must start from the table's current scroll offset,
+      // not the possibly-stale offset captured from the previous scene instance.
+      if (viewMode === '2d') disposeSceneRef.current.setScrollTop?.(clampScroll2D(scrollTop2D));
       if (active) setIsSceneRendering(false);
     });
 
@@ -543,7 +546,7 @@ export function HasmVisualizerComponent({
                         onMouseLeave={() => setHoveredNode(null)}
                         onClick={() => handleSelectNode(row)}
                       >
-                        <td>
+                        <td title={row.label}>
                           <span className="HasmVisualizer_FactDot" style={{ background: rowColor }} />
                           {row.label}
                         </td>
