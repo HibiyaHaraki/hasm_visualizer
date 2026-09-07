@@ -43,6 +43,7 @@ export function computeVisualizerLayoutJS(model, filter) {
     const z = factZ(timeScaleMode, index, tKey, earliestTime, zStepValue);
 
     const expIds = fact.experience_ids || fact.experienceIds || [];
+    const directExperienceIds = new Set(expIds.map(String));
     const reflectedExperiences = new Set();
     expIds.forEach((experienceId) => collectExperienceAndAncestors(String(experienceId), experiences, reflectedExperiences));
     const visibleBranches = reflectedExperiences.size > 0 ? reflectedExperiences : new Set([null]);
@@ -59,6 +60,10 @@ export function computeVisualizerLayoutJS(model, filter) {
         x,
         y,
         z,
+        // True only where the FACT is registered directly on this EXPERIENCE; false where it is
+        // merely reflected onto an ancestor EXPERIENCE (recursive inheritance), which renders
+        // transparent so the directly-registered instance reads as the "real" one.
+        isDirectFact: !branchId || directExperienceIds.has(branchId),
       });
     });
   });
