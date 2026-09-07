@@ -168,8 +168,9 @@ export function createCommitGraph2D(container, payload, theme, onSelect, onHover
   });
 
   // LINK entities: a FACT-FACT LINK is a thin dashed line shown at all times; any LINK touching an
-  // EXPERIENCE/PERSON instead renders as a wide translucent "membrane" that stays invisible (opacity
-  // 0, no pointer events) until one of its endpoints is hovered (toggled from setHighlight below).
+  // EXPERIENCE/PERSON instead renders as a wide translucent "membrane" always visible at high
+  // transmittance (very low opacity), which brightens when one of its endpoints is hovered
+  // (toggled from setHighlight below).
   const linkElementsByEndpointId = new Map();
   const trackLinkElement = (id, ref) => {
     const list = linkElementsByEndpointId.get(id) || [];
@@ -183,10 +184,10 @@ export function createCommitGraph2D(container, payload, theme, onSelect, onHover
     const isFactFact = line.linkCategory === "FACT_FACT";
     const element = svgEl("line", isFactFact
       ? { x1: from.x, y1: from.y, x2: to.x, y2: to.y, stroke: color, "stroke-width": LINK_STROKE_PX, "stroke-dasharray": "6 5", opacity: 0.7 }
-      : { x1: from.x, y1: from.y, x2: to.x, y2: to.y, stroke: color, "stroke-width": MEMBRANE_STROKE_PX, "stroke-linecap": "round", opacity: 0 });
+      : { x1: from.x, y1: from.y, x2: to.x, y2: to.y, stroke: color, "stroke-width": MEMBRANE_STROKE_PX, "stroke-linecap": "round", opacity: 0.08 });
     if (!isFactFact) element.style.pointerEvents = "none";
     svg.appendChild(element);
-    const ref = { element, baseColor: color, baseOpacity: isFactFact ? 0.7 : 0, highlightOpacity: isFactFact ? 1 : 0.35 };
+    const ref = { element, baseColor: color, baseOpacity: isFactFact ? 0.7 : 0.08, highlightOpacity: isFactFact ? 1 : 0.5 };
     trackLinkElement(line.fromId, ref);
     trackLinkElement(line.toId, ref);
   });

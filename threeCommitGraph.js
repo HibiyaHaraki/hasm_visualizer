@@ -274,8 +274,9 @@ export function createCommitGraph(container, payload, theme, onSelect, onHover, 
   });
 
   // LINK entities: a FACT-FACT LINK is a thin line shown at all times; any LINK touching an
-  // EXPERIENCE/PERSON instead renders as a translucent "membrane" that stays invisible until one
-  // of its endpoints is hovered (toggled from setHighlight below, not FOV-culled).
+  // EXPERIENCE/PERSON instead renders as a translucent "membrane" always visible at high
+  // transmittance (very low opacity), which brightens when one of its endpoints is hovered
+  // (toggled from setHighlight below, not FOV-culled).
   const linkMeshesByEndpointId = new Map();
   const trackLinkMesh = (id, mesh) => {
     const list = linkMeshesByEndpointId.get(id) || [];
@@ -295,10 +296,9 @@ export function createCommitGraph(container, payload, theme, onSelect, onHover, 
     } else {
       const curve = new THREE.CatmullRomCurve3([from, to]);
       const geometry = new THREE.TubeGeometry(curve, 1, 0.18, 8, false);
-      const material = new THREE.MeshStandardMaterial({ color, transparent: true, opacity: 0, depthWrite: false });
+      const material = new THREE.MeshStandardMaterial({ color, transparent: true, opacity: 0.08, depthWrite: false });
       mesh = new THREE.Mesh(geometry, material);
-      mesh.visible = false;
-      mesh.userData = { baseColor: color, baseOpacity: 0, highlightOpacity: 0.35 };
+      mesh.userData = { baseColor: color, baseOpacity: 0.08, highlightOpacity: 0.5 };
     }
     scene.add(mesh);
     lineMeshes.push(mesh);
@@ -360,13 +360,12 @@ export function createCommitGraph(container, payload, theme, onSelect, onHover, 
         mesh.material.opacity = highlighted ? 1 : mesh.userData.baseOpacity;
       });
     });
-    // LINK meshes: emphasize (brighter color, full opacity) whenever a hovered endpoint owns them;
-    // MEMBRANE-category LINKs are additionally hidden entirely until that happens.
+    // LINK meshes are always visible; emphasize (brighter color, higher opacity) whenever a
+    // hovered node owns one of their endpoints.
     const emphasizedLinkMeshes = new Set();
     highlightedIds.forEach((id) => (linkMeshesByEndpointId.get(id) || []).forEach((mesh) => emphasizedLinkMeshes.add(mesh)));
     linkMeshesByEndpointId.forEach((meshes) => meshes.forEach((mesh) => {
       const emphasized = emphasizedLinkMeshes.has(mesh);
-      mesh.visible = emphasized || mesh.userData.baseOpacity > 0;
       mesh.material.color.set(emphasized ? highlightColor : mesh.userData.baseColor);
       mesh.material.opacity = emphasized ? mesh.userData.highlightOpacity : mesh.userData.baseOpacity;
     }));
