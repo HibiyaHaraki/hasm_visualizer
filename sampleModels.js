@@ -43,12 +43,12 @@ export const SAMPLE_HASM_MODELS = [
         { fact_id: "mcf22", fact_name: "Died of aplastic anemia from radiation exposure", occurred_at: "1934-07-04", experience_ids: ["mce1"] }
       ],
       links: [
-        { link_id: "mcl1", link_name: "Collaborated With Pierre Curie", link_type: "relationship" },
-        { link_id: "mcl2", link_name: "Advanced Nuclear Physics", link_type: "breakthrough" },
-        { link_id: "mcl3", link_name: "Founded Radium Institute", link_type: "achievement" },
-        { link_id: "mcl4", link_name: "Raised Irène and Ève Curie", link_type: "relationship" },
-        { link_id: "mcl5", link_name: "Corresponded With Albert Einstein", link_type: "relationship" },
-        { link_id: "mcl6", link_name: "Built on Henri Becquerel's Uranium Research", link_type: "influence" }
+        { link_id: "mcl1", link_name: "Collaborated With Pierre Curie", link_type: "relationship", related_ids: ["mc1", "mce3"] },
+        { link_id: "mcl2", link_name: "Advanced Nuclear Physics", link_type: "breakthrough", related_ids: ["mcf11", "mcf12"] },
+        { link_id: "mcl3", link_name: "Founded Radium Institute", link_type: "achievement", related_ids: ["mcf19", "mce6"] },
+        { link_id: "mcl4", link_name: "Raised Irène and Ève Curie", link_type: "relationship", related_ids: ["mc1", "mce1"] },
+        { link_id: "mcl5", link_name: "Corresponded With Albert Einstein", link_type: "relationship", related_ids: ["mc1", "mcf16"] },
+        { link_id: "mcl6", link_name: "Built on Henri Becquerel's Uranium Research", link_type: "influence", related_ids: ["mcf9", "mcf10"] }
       ]
     }
   },
@@ -92,12 +92,12 @@ export const SAMPLE_HASM_MODELS = [
         { fact_id: "alf22", fact_name: "Died from his wounds", occurred_at: "1865-04-15", experience_ids: ["ale6"] }
       ],
       links: [
-        { link_id: "all1", link_name: "Debated Stephen Douglas", link_type: "relationship" },
-        { link_id: "all2", link_name: "Issued Emancipation Proclamation", link_type: "achievement" },
-        { link_id: "all3", link_name: "Led the Union Through Civil War", link_type: "breakthrough" },
-        { link_id: "all4", link_name: "Appointed William Seward Secretary of State", link_type: "relationship" },
-        { link_id: "all5", link_name: "Opposed by Confederacy Under Jefferson Davis", link_type: "relationship" },
-        { link_id: "all6", link_name: "Supported by Abolitionist Frederick Douglass", link_type: "relationship" }
+        { link_id: "all1", link_name: "Debated Stephen Douglas", link_type: "relationship", related_ids: ["alf10", "alf11"] },
+        { link_id: "all2", link_name: "Issued Emancipation Proclamation", link_type: "achievement", related_ids: ["alf16", "ale5"] },
+        { link_id: "all3", link_name: "Led the Union Through Civil War", link_type: "breakthrough", related_ids: ["al1", "ale4"] },
+        { link_id: "all4", link_name: "Appointed William Seward Secretary of State", link_type: "relationship", related_ids: ["al1", "alf13"] },
+        { link_id: "all5", link_name: "Opposed by Confederacy Under Jefferson Davis", link_type: "relationship", related_ids: ["alf14", "alf20"] },
+        { link_id: "all6", link_name: "Supported by Abolitionist Frederick Douglass", link_type: "relationship", related_ids: ["al1", "ale5"] }
       ]
     }
   },
@@ -141,12 +141,12 @@ export const SAMPLE_HASM_MODELS = [
         { fact_id: "tif22", fact_name: "Enshrined at Nikko Toshogu shrine", occurred_at: "1617-04-17", experience_ids: ["tie6"] }
       ],
       links: [
-        { link_id: "til1", link_name: "Allied With Oda Nobunaga", link_type: "relationship" },
-        { link_id: "til2", link_name: "Won the Battle of Sekigahara", link_type: "breakthrough" },
-        { link_id: "til3", link_name: "Founded the Edo Shogunate", link_type: "achievement" },
-        { link_id: "til4", link_name: "Succeeded by His Son Hidetada", link_type: "relationship" },
-        { link_id: "til5", link_name: "Rivaled Toyotomi Hideyori", link_type: "relationship" },
-        { link_id: "til6", link_name: "Advised by the Monk Ishin Suden", link_type: "relationship" }
+        { link_id: "til1", link_name: "Allied With Oda Nobunaga", link_type: "relationship", related_ids: ["tif3", "tif6"] },
+        { link_id: "til2", link_name: "Won the Battle of Sekigahara", link_type: "breakthrough", related_ids: ["tif10", "tie4"] },
+        { link_id: "til3", link_name: "Founded the Edo Shogunate", link_type: "achievement", related_ids: ["ti1", "tie5"] },
+        { link_id: "til4", link_name: "Succeeded by His Son Hidetada", link_type: "relationship", related_ids: ["ti1", "tif13"] },
+        { link_id: "til5", link_name: "Rivaled Toyotomi Hideyori", link_type: "relationship", related_ids: ["tif16", "tif17"] },
+        { link_id: "til6", link_name: "Advised by the Monk Ishin Suden", link_type: "relationship", related_ids: ["ti1", "tie6"] }
       ]
     }
   },
@@ -190,12 +190,12 @@ export const SAMPLE_HASM_MODELS = [
         { fact_id: "syf22", fact_name: "Died of liver cancer in Beijing", occurred_at: "1925-03-12", experience_ids: ["sye1"] }
       ],
       links: [
-        { link_id: "syl1", link_name: "Founded the Tongmenghui Alliance", link_type: "relationship" },
-        { link_id: "syl2", link_name: "Led the Xinhai Revolution", link_type: "breakthrough" },
-        { link_id: "syl3", link_name: "Authored the Three Principles", link_type: "achievement" },
-        { link_id: "syl4", link_name: "Succeeded by Chiang Kai-shek", link_type: "relationship" },
-        { link_id: "syl5", link_name: "Supported by Soviet Advisor Mikhail Borodin", link_type: "relationship" },
-        { link_id: "syl6", link_name: "Married Soong Ching-ling", link_type: "relationship" }
+        { link_id: "syl1", link_name: "Founded the Tongmenghui Alliance", link_type: "relationship", related_ids: ["syf5", "syf8"] },
+        { link_id: "syl2", link_name: "Led the Xinhai Revolution", link_type: "breakthrough", related_ids: ["syf11", "sye4"] },
+        { link_id: "syl3", link_name: "Authored the Three Principles", link_type: "achievement", related_ids: ["sy1", "sye5"] },
+        { link_id: "syl4", link_name: "Succeeded by Chiang Kai-shek", link_type: "relationship", related_ids: ["sy1", "syf22"] },
+        { link_id: "syl5", link_name: "Supported by Soviet Advisor Mikhail Borodin", link_type: "relationship", related_ids: ["syf17", "syf18"] },
+        { link_id: "syl6", link_name: "Married Soong Ching-ling", link_type: "relationship", related_ids: ["sy1", "sye6"] }
       ]
     }
   }

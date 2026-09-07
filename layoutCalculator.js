@@ -114,17 +114,36 @@ export function computeVisualizerLayoutJS(model, filter) {
     });
   });
 
+  // A FACT can appear multiple times (once per ancestor EXPERIENCE it reflects onto), so keep
+  // just the first instance per id as the representative endpoint for LINK geometry.
+  const nodeById = new Map();
+  nodes.forEach((node) => { if (!nodeById.has(node.id)) nodeById.set(node.id, node); });
+
   const links = model?.links || [];
-  links.forEach((link, index) => {
-    if (nodes.length === 0) return;
-    const sourceNode = nodes[index % nodes.length];
-    const targetNode = nodes[(index + 1) % nodes.length];
-    lines.push({
-      id: String(link.link_id || link.id),
-      lineType: "LINK",
-      from: [sourceNode.x, sourceNode.y, sourceNode.z],
-      to: [targetNode.x, targetNode.y, targetNode.z],
-    });
+  links.forEach((link) => {
+    const linkId = String(link.link_id || link.id);
+    const relatedIds = (link.related_ids || link.relatedIds || []).map(String);
+    // A LINK is only drawn between endpoints that actually resolved to a rendered node (i.e. both
+    // ends survived scoping/filtering); every unordered pair among related_ids gets its own line.
+    for (let i = 0; i < relatedIds.length; i += 1) {
+      for (let j = i + 1; j < relatedIds.length; j += 1) {
+        const fromNode = nodeById.get(relatedIds[i]);
+        const toNode = nodeById.get(relatedIds[j]);
+        if (!fromNode || !toNode) continue;
+        const isFactFact = fromNode.entityType === "FACT" && toNode.entityType === "FACT";
+        lines.push({
+          id: `link-${linkId}-${relatedIds[i]}-${relatedIds[j]}`,
+          lineType: "LINK",
+          // FACT-FACT LINKs are thin lines always shown; any LINK touching an EXPERIENCE/PERSON
+          // is a translucent "membrane" shown only while one of its endpoints is hovered.
+          linkCategory: isFactFact ? "FACT_FACT" : "MEMBRANE",
+          fromId: fromNode.id,
+          toId: toNode.id,
+          from: [fromNode.x, fromNode.y, fromNode.z],
+          to: [toNode.x, toNode.y, toNode.z],
+        });
+      }
+    }
   });
 
   return { nodes3d: nodes, lines3d: lines, warnings: [] };

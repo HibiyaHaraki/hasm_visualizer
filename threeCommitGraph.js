@@ -102,30 +102,26 @@ export const DEFAULT_MAX_RENDERED_NODES = 1200;
 
 const FOV_CULLING_MARGIN = 1.2;
 
-function linePositionKey(point) {
-  return Array.isArray(point) && point.length >= 3 && point.every(Number.isFinite)
-    ? `${point[0].toFixed(2)},${point[1].toFixed(2)},${point[2].toFixed(2)}`
-    : "";
-}
-
 /// Trims a layout payload to a renderable size, returning the payload plus a human-readable warning
-/// when nodes were dropped. EXPERIENCE nodes are always kept because branch geometry depends on them.
+/// when nodes were dropped. EXPERIENCE and PERSON nodes are always kept (branch geometry and LINK
+/// endpoints depend on them); only FACT nodes are trimmed.
 export function limitRenderedNodes(payload, maxNodes = DEFAULT_MAX_RENDERED_NODES) {
   const nodes = payload?.nodes3d || [];
   if (!Number.isFinite(maxNodes) || maxNodes <= 0 || nodes.length <= maxNodes) {
     return { payload, warning: "" };
   }
   const experienceNodes = nodes.filter((node) => node.entityType === "EXPERIENCE");
+  const personNodes = nodes.filter((node) => node.entityType === "PERSON");
   const allFactNodes = nodes.filter((node) => node.entityType === "FACT");
-  const factNodes = allFactNodes.slice(0, Math.max(maxNodes - experienceNodes.length, 0));
+  const factNodes = allFactNodes.slice(0, Math.max(maxNodes - experienceNodes.length - personNodes.length, 0));
   const dropped = allFactNodes.length - factNodes.length;
-  const keptPositionKeys = new Set([...experienceNodes, ...factNodes].map((node) => linePositionKey([node.x, node.y, node.z])));
+  const keptIds = new Set([...experienceNodes, ...personNodes, ...factNodes].map((node) => node.id));
   const lines3d = (payload.lines3d || []).filter((line) => {
     if (line.lineType !== "LINK") return true;
-    return keptPositionKeys.has(linePositionKey(line.from)) && keptPositionKeys.has(linePositionKey(line.to));
+    return keptIds.has(line.fromId) && keptIds.has(line.toId);
   });
   return {
-    payload: { ...payload, nodes3d: [...experienceNodes, ...factNodes], lines3d },
+    payload: { ...payload, nodes3d: [...experienceNodes, ...personNodes, ...factNodes], lines3d },
     warning: `Showing ${factNodes.length} of ${allFactNodes.length} FACT nodes. Narrow the PERSON or EXPERIENCE scope to see the remaining ${dropped}.`,
   };
 }
@@ -251,26 +247,20 @@ export function createCommitGraph(container, payload, theme, onSelect, onHover, 
   const highlightColor = ensureReadableColor(theme.textColor, theme.textBackgroundColor);
   // BRANCH_OUT lands on the child EXPERIENCE (`to`); BRANCH_MERGE departs from it (`from`); everything else uses `to`.
   const resolveLineColor = (line) => {
-    if (line.lineType === "LINK") return entityColors.LINK;
     const endpoint = line.lineType === "BRANCH_MERGE" ? line.from : line.to;
     return trunkColorByPositionKey.get(positionKey(endpoint[0], endpoint[1])) || entityColors.EXPERIENCE;
   };
-  payload.lines3d.forEach((line) => {
+  payload.lines3d.filter((line) => line.lineType !== "LINK").forEach((line) => {
     const from = new THREE.Vector3(...line.from);
     const to = new THREE.Vector3(...line.to);
     const points = line.controlPoints?.length
       ? new THREE.QuadraticBezierCurve3(from, new THREE.Vector3(...line.controlPoints[0]), to).getPoints(24)
       : [from, to];
     const color = resolveLineColor(line);
-    const isExperienceLine = line.lineType !== "LINK";
     const curve = new THREE.CatmullRomCurve3(points);
-    const geometry = isExperienceLine
-      ? new THREE.TubeGeometry(curve, Math.max(points.length - 1, 1), 0.075, 8, false)
-      : new THREE.BufferGeometry().setFromPoints(points);
-    const material = isExperienceLine
-      ? new THREE.MeshStandardMaterial({ color, roughness: 0.4, metalness: 0.1 })
-      : new THREE.LineBasicMaterial({ color });
-    const mesh = isExperienceLine ? new THREE.Mesh(geometry, material) : new THREE.Line(geometry, material);
+    const geometry = new THREE.TubeGeometry(curve, Math.max(points.length - 1, 1), 0.075, 8, false);
+    const material = new THREE.MeshStandardMaterial({ color, roughness: 0.4, metalness: 0.1 });
+    const mesh = new THREE.Mesh(geometry, material);
     const nodeId = line.lineType === "BRANCH" ? line.id.replace("branch-", "") : null;
     const node = nodeId ? nodeById.get(nodeId) : null;
     mesh.userData = { ...node, baseColor: color, baseOpacity: 1 };
@@ -281,6 +271,39 @@ export function createCommitGraph(container, payload, theme, onSelect, onHover, 
     lineMeshes.push(mesh);
     fovCulledMeshes.push(mesh);
     scene.add(mesh);
+  });
+
+  // LINK entities: a FACT-FACT LINK is a thin line shown at all times; any LINK touching an
+  // EXPERIENCE/PERSON instead renders as a translucent "membrane" that stays invisible until one
+  // of its endpoints is hovered (toggled from setHighlight below, not FOV-culled).
+  const linkMeshesByEndpointId = new Map();
+  const trackLinkMesh = (id, mesh) => {
+    const list = linkMeshesByEndpointId.get(id) || [];
+    list.push(mesh);
+    linkMeshesByEndpointId.set(id, list);
+  };
+  payload.lines3d.filter((line) => line.lineType === "LINK").forEach((line) => {
+    const from = new THREE.Vector3(...line.from);
+    const to = new THREE.Vector3(...line.to);
+    const color = entityColors.LINK;
+    let mesh;
+    if (line.linkCategory === "FACT_FACT") {
+      const geometry = new THREE.BufferGeometry().setFromPoints([from, to]);
+      const material = new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.6 });
+      mesh = new THREE.Line(geometry, material);
+      mesh.userData = { baseColor: color, baseOpacity: 0.6, highlightOpacity: 1 };
+    } else {
+      const curve = new THREE.CatmullRomCurve3([from, to]);
+      const geometry = new THREE.TubeGeometry(curve, 1, 0.18, 8, false);
+      const material = new THREE.MeshStandardMaterial({ color, transparent: true, opacity: 0, depthWrite: false });
+      mesh = new THREE.Mesh(geometry, material);
+      mesh.visible = false;
+      mesh.userData = { baseColor: color, baseOpacity: 0, highlightOpacity: 0.35 };
+    }
+    scene.add(mesh);
+    lineMeshes.push(mesh);
+    trackLinkMesh(line.fromId, mesh);
+    trackLinkMesh(line.toId, mesh);
   });
 
   // One shared geometry for every FACT commit: allocating a BoxGeometry per node costs a separate
@@ -337,6 +360,16 @@ export function createCommitGraph(container, payload, theme, onSelect, onHover, 
         mesh.material.opacity = highlighted ? 1 : mesh.userData.baseOpacity;
       });
     });
+    // LINK meshes: emphasize (brighter color, full opacity) whenever a hovered endpoint owns them;
+    // MEMBRANE-category LINKs are additionally hidden entirely until that happens.
+    const emphasizedLinkMeshes = new Set();
+    highlightedIds.forEach((id) => (linkMeshesByEndpointId.get(id) || []).forEach((mesh) => emphasizedLinkMeshes.add(mesh)));
+    linkMeshesByEndpointId.forEach((meshes) => meshes.forEach((mesh) => {
+      const emphasized = emphasizedLinkMeshes.has(mesh);
+      mesh.visible = emphasized || mesh.userData.baseOpacity > 0;
+      mesh.material.color.set(emphasized ? highlightColor : mesh.userData.baseColor);
+      mesh.material.opacity = emphasized ? mesh.userData.highlightOpacity : mesh.userData.baseOpacity;
+    }));
     renderVisibleScene();
   };
 

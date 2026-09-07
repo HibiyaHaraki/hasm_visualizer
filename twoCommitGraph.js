@@ -26,6 +26,7 @@ const SVG_NS = "http://www.w3.org/2000/svg";
 const FACT_RADIUS_PX = 7;
 const BRANCH_STROKE_PX = 4;
 const LINK_STROKE_PX = 1.5;
+const MEMBRANE_STROKE_PX = 14;
 const LANE_LABEL_GAP_PX = 10;
 // Keeps lane 0's dots/branch lines/labels clear of the pane's left edge (a 0px-inset element would
 // otherwise be half-clipped, hiding the first EXPERIENCE).
@@ -123,7 +124,6 @@ export function createCommitGraph2D(container, payload, theme, onSelect, onHover
   const factElementsById = new Map();
 
   const resolveLineColor = (line) => {
-    if (line.lineType === "LINK") return entityColors.LINK;
     const endpoint = line.lineType === "BRANCH_MERGE" ? line.from : line.to;
     return trunkColorByPositionKey.get(positionKey(endpoint[0], endpoint[1])) || entityColors.EXPERIENCE;
   };
@@ -142,27 +142,19 @@ export function createCommitGraph2D(container, payload, theme, onSelect, onHover
     element.addEventListener("click", () => onSelect?.(getNode()));
   };
 
-  payload.lines3d.forEach((line) => {
+  payload.lines3d.filter((line) => line.lineType !== "LINK").forEach((line) => {
     const color = resolveLineColor(line);
     const from = toXY(line.from);
     const to = toXY(line.to);
-    let element;
-    if (line.lineType === "LINK") {
-      element = svgEl("line", {
-        x1: from.x, y1: from.y, x2: to.x, y2: to.y,
-        stroke: color, "stroke-width": LINK_STROKE_PX, "stroke-dasharray": "6 5", opacity: 0.7,
-      });
-    } else {
-      // Same perpendicular-offset control point as the 3D renderer's flat variant.
-      const controlX = (from.x + to.x) / 2 - (to.y - from.y) * 0.18;
-      const controlY = (from.y + to.y) / 2 + (to.x - from.x) * 0.18;
-      const d = line.controlPoints?.length
-        ? `M ${from.x} ${from.y} Q ${controlX} ${controlY} ${to.x} ${to.y}`
-        : `M ${from.x} ${from.y} L ${to.x} ${to.y}`;
-      element = svgEl("path", {
-        d, fill: "none", stroke: color, "stroke-width": BRANCH_STROKE_PX, "stroke-linecap": "round",
-      });
-    }
+    // Same perpendicular-offset control point as the 3D renderer's flat variant.
+    const controlX = (from.x + to.x) / 2 - (to.y - from.y) * 0.18;
+    const controlY = (from.y + to.y) / 2 + (to.x - from.x) * 0.18;
+    const d = line.controlPoints?.length
+      ? `M ${from.x} ${from.y} Q ${controlX} ${controlY} ${to.x} ${to.y}`
+      : `M ${from.x} ${from.y} L ${to.x} ${to.y}`;
+    const element = svgEl("path", {
+      d, fill: "none", stroke: color, "stroke-width": BRANCH_STROKE_PX, "stroke-linecap": "round",
+    });
     svg.appendChild(element);
     if (line.lineType === "BRANCH") {
       const experienceId = line.id.replace("branch-", "");
@@ -174,6 +166,31 @@ export function createCommitGraph2D(container, payload, theme, onSelect, onHover
       experienceElementsById.set(experienceId, elements);
     }
   });
+
+  // LINK entities: a FACT-FACT LINK is a thin dashed line shown at all times; any LINK touching an
+  // EXPERIENCE/PERSON instead renders as a wide translucent "membrane" that stays invisible (opacity
+  // 0, no pointer events) until one of its endpoints is hovered (toggled from setHighlight below).
+  const linkElementsByEndpointId = new Map();
+  const trackLinkElement = (id, ref) => {
+    const list = linkElementsByEndpointId.get(id) || [];
+    list.push(ref);
+    linkElementsByEndpointId.set(id, list);
+  };
+  payload.lines3d.filter((line) => line.lineType === "LINK").forEach((line) => {
+    const color = entityColors.LINK;
+    const from = toXY(line.from);
+    const to = toXY(line.to);
+    const isFactFact = line.linkCategory === "FACT_FACT";
+    const element = svgEl("line", isFactFact
+      ? { x1: from.x, y1: from.y, x2: to.x, y2: to.y, stroke: color, "stroke-width": LINK_STROKE_PX, "stroke-dasharray": "6 5", opacity: 0.7 }
+      : { x1: from.x, y1: from.y, x2: to.x, y2: to.y, stroke: color, "stroke-width": MEMBRANE_STROKE_PX, "stroke-linecap": "round", opacity: 0 });
+    if (!isFactFact) element.style.pointerEvents = "none";
+    svg.appendChild(element);
+    const ref = { element, baseColor: color, baseOpacity: isFactFact ? 0.7 : 0, highlightOpacity: isFactFact ? 1 : 0.35 };
+    trackLinkElement(line.fromId, ref);
+    trackLinkElement(line.toId, ref);
+  });
+
 
   // FACT commit dots snapped to their table row; labels live in the HTML table beside this panel.
   payload.nodes3d
@@ -213,6 +230,16 @@ export function createCommitGraph2D(container, payload, theme, onSelect, onHover
         element.setAttribute("fill-opacity", highlighted ? 1 : baseOpacity);
       }
     });
+
+    // LINK elements: emphasize (brighter color, fuller opacity) whenever a hovered endpoint owns
+    // them; MEMBRANE-category LINKs are additionally revealed from fully transparent only then.
+    const emphasizedLinkRefs = new Set();
+    highlightedIds.forEach((id) => (linkElementsByEndpointId.get(id) || []).forEach((ref) => emphasizedLinkRefs.add(ref)));
+    linkElementsByEndpointId.forEach((refs) => refs.forEach((ref) => {
+      const emphasized = emphasizedLinkRefs.has(ref);
+      ref.element.setAttribute("stroke", emphasized ? highlightColor : ref.baseColor);
+      ref.element.setAttribute("opacity", emphasized ? ref.highlightOpacity : ref.baseOpacity);
+    }));
   }
 
   // The FACT table owns real scrolling; this pane only mirrors its scrollTop via transform, so
