@@ -63,13 +63,15 @@ export function computeVisualizerLayoutJS(model, filter) {
     });
   });
 
+  const experienceRangeById = new Map();
   experiences.forEach((experience) => {
     const expId = String(experience.experience_id || experience.id);
     const [x, y] = branchPositions.has(expId) ? branchPositions.get(expId) : [0.0, 0.0];
     const factZs = experienceFactZs.get(expId) || [];
+    const firstFactZ = factZs.length > 0 ? Math.min(...factZs) : 0.0;
+    const lastFactZ = factZs.length > 0 ? Math.max(...factZs) : 0.0;
+    experienceRangeById.set(expId, { x, y, firstZ: firstFactZ, lastZ: lastFactZ });
     if (factZs.length > 0) {
-      const firstFactZ = Math.min(...factZs);
-      const lastFactZ = Math.max(...factZs);
       lines.push({
         id: `branch-${expId}`,
         lineType: "BRANCH",
@@ -131,16 +133,43 @@ export function computeVisualizerLayoutJS(model, filter) {
         const toNode = nodeById.get(relatedIds[j]);
         if (!fromNode || !toNode) continue;
         const isFactFact = fromNode.entityType === "FACT" && toNode.entityType === "FACT";
+        const isExperienceExperience = fromNode.entityType === "EXPERIENCE" && toNode.entityType === "EXPERIENCE";
+        const isFactExperience = (fromNode.entityType === "FACT" && toNode.entityType === "EXPERIENCE")
+          || (fromNode.entityType === "EXPERIENCE" && toNode.entityType === "FACT");
+        // An EXPERIENCE-EXPERIENCE LINK spans each branch's full lifetime, so its membrane is a
+        // rectangle from each EXPERIENCE's first FACT to its last FACT rather than a single line.
+        const fromRange = isExperienceExperience ? experienceRangeById.get(fromNode.id) : null;
+        const toRange = isExperienceExperience ? experienceRangeById.get(toNode.id) : null;
+        // A FACT-EXPERIENCE LINK's membrane is a triangle: the EXPERIENCE's start/end points plus
+        // the FACT's own point.
+        const factNode = isFactExperience ? (fromNode.entityType === "FACT" ? fromNode : toNode) : null;
+        const experienceNode = isFactExperience ? (fromNode.entityType === "EXPERIENCE" ? fromNode : toNode) : null;
+        const experienceRange = experienceNode ? experienceRangeById.get(experienceNode.id) : null;
+        let linkShape = "LINE";
+        const extra = {};
+        if (fromRange && toRange) {
+          linkShape = "RECT";
+          extra.rect = { fromZStart: fromRange.firstZ, fromZEnd: fromRange.lastZ, toZStart: toRange.firstZ, toZEnd: toRange.lastZ };
+        } else if (experienceRange && factNode) {
+          linkShape = "TRIANGLE";
+          extra.triangle = {
+            expX: experienceRange.x, expY: experienceRange.y, expZStart: experienceRange.firstZ, expZEnd: experienceRange.lastZ,
+            factX: factNode.x, factY: factNode.y, factZ: factNode.z,
+          };
+        }
         lines.push({
           id: `link-${linkId}-${relatedIds[i]}-${relatedIds[j]}`,
           lineType: "LINK",
           // FACT-FACT LINKs are thin lines always shown; any LINK touching an EXPERIENCE/PERSON
-          // is a translucent "membrane" shown only while one of its endpoints is hovered.
+          // is a translucent "membrane" (rectangle for EXPERIENCE-EXPERIENCE, triangle for
+          // FACT-EXPERIENCE, line otherwise).
           linkCategory: isFactFact ? "FACT_FACT" : "MEMBRANE",
+          linkShape,
           fromId: fromNode.id,
           toId: toNode.id,
           from: [fromNode.x, fromNode.y, fromNode.z],
           to: [toNode.x, toNode.y, toNode.z],
+          ...extra,
         });
       }
     }

@@ -293,6 +293,37 @@ export function createCommitGraph(container, payload, theme, onSelect, onHover, 
       const material = new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.6 });
       mesh = new THREE.Line(geometry, material);
       mesh.userData = { baseColor: color, baseOpacity: 0.6, highlightOpacity: 1 };
+    } else if (line.linkShape === "RECT" && line.rect) {
+      // EXPERIENCE-EXPERIENCE membrane: a flat quad spanning each branch's full first-to-last-FACT
+      // extent, not just a line between two representative points.
+      const { fromZStart, fromZEnd, toZStart, toZEnd } = line.rect;
+      const corners = [
+        new THREE.Vector3(from.x, from.y, fromZStart),
+        new THREE.Vector3(from.x, from.y, fromZEnd),
+        new THREE.Vector3(to.x, to.y, toZEnd),
+        new THREE.Vector3(to.x, to.y, toZStart),
+      ];
+      const geometry = new THREE.BufferGeometry().setFromPoints(corners);
+      geometry.setIndex([0, 1, 2, 0, 2, 3]);
+      geometry.computeVertexNormals();
+      const material = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.08, side: THREE.DoubleSide, depthWrite: false });
+      mesh = new THREE.Mesh(geometry, material);
+      mesh.userData = { baseColor: color, baseOpacity: 0.08, highlightOpacity: 0.5 };
+    } else if (line.linkShape === "TRIANGLE" && line.triangle) {
+      // FACT-EXPERIENCE membrane: a flat triangle from the EXPERIENCE's start/end points to the
+      // FACT's own point.
+      const { expX, expY, expZStart, expZEnd, factX, factY, factZ } = line.triangle;
+      const corners = [
+        new THREE.Vector3(expX, expY, expZStart),
+        new THREE.Vector3(expX, expY, expZEnd),
+        new THREE.Vector3(factX, factY, factZ),
+      ];
+      const geometry = new THREE.BufferGeometry().setFromPoints(corners);
+      geometry.setIndex([0, 1, 2]);
+      geometry.computeVertexNormals();
+      const material = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.08, side: THREE.DoubleSide, depthWrite: false });
+      mesh = new THREE.Mesh(geometry, material);
+      mesh.userData = { baseColor: color, baseOpacity: 0.08, highlightOpacity: 0.5 };
     } else {
       const curve = new THREE.CatmullRomCurve3([from, to]);
       const geometry = new THREE.TubeGeometry(curve, 1, 0.18, 8, false);

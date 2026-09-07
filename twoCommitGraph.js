@@ -179,15 +179,48 @@ export function createCommitGraph2D(container, payload, theme, onSelect, onHover
   };
   payload.lines3d.filter((line) => line.lineType === "LINK").forEach((line) => {
     const color = entityColors.LINK;
-    const from = toXY(line.from);
-    const to = toXY(line.to);
     const isFactFact = line.linkCategory === "FACT_FACT";
-    const element = svgEl("line", isFactFact
-      ? { x1: from.x, y1: from.y, x2: to.x, y2: to.y, stroke: color, "stroke-width": LINK_STROKE_PX, "stroke-dasharray": "6 5", opacity: 0.7 }
-      : { x1: from.x, y1: from.y, x2: to.x, y2: to.y, stroke: color, "stroke-width": MEMBRANE_STROKE_PX, "stroke-linecap": "round", opacity: 0.08 });
-    if (!isFactFact) element.style.pointerEvents = "none";
+    let element;
+    let colorAttr = "stroke";
+    if (isFactFact) {
+      const from = toXY(line.from);
+      const to = toXY(line.to);
+      element = svgEl("line", { x1: from.x, y1: from.y, x2: to.x, y2: to.y, stroke: color, "stroke-width": LINK_STROKE_PX, "stroke-dasharray": "6 5", opacity: 0.7 });
+    } else if (line.linkShape === "RECT" && line.rect) {
+      // EXPERIENCE-EXPERIENCE membrane: a flat quad spanning each branch's full first-to-last-FACT
+      // extent, not just a line between two representative points.
+      const { fromZStart, fromZEnd, toZStart, toZEnd } = line.rect;
+      const p1 = toXY([line.from[0], line.from[1], fromZStart]);
+      const p2 = toXY([line.from[0], line.from[1], fromZEnd]);
+      const p3 = toXY([line.to[0], line.to[1], toZEnd]);
+      const p4 = toXY([line.to[0], line.to[1], toZStart]);
+      element = svgEl("polygon", {
+        points: `${p1.x},${p1.y} ${p2.x},${p2.y} ${p3.x},${p3.y} ${p4.x},${p4.y}`,
+        fill: color, stroke: "none", opacity: 0.08,
+      });
+      element.style.pointerEvents = "none";
+      colorAttr = "fill";
+    } else if (line.linkShape === "TRIANGLE" && line.triangle) {
+      // FACT-EXPERIENCE membrane: a flat triangle from the EXPERIENCE's start/end points to the
+      // FACT's own point.
+      const { expX, expY, expZStart, expZEnd, factX, factY, factZ } = line.triangle;
+      const p1 = toXY([expX, expY, expZStart]);
+      const p2 = toXY([expX, expY, expZEnd]);
+      const p3 = toXY([factX, factY, factZ]);
+      element = svgEl("polygon", {
+        points: `${p1.x},${p1.y} ${p2.x},${p2.y} ${p3.x},${p3.y}`,
+        fill: color, stroke: "none", opacity: 0.08,
+      });
+      element.style.pointerEvents = "none";
+      colorAttr = "fill";
+    } else {
+      const from = toXY(line.from);
+      const to = toXY(line.to);
+      element = svgEl("line", { x1: from.x, y1: from.y, x2: to.x, y2: to.y, stroke: color, "stroke-width": MEMBRANE_STROKE_PX, "stroke-linecap": "round", opacity: 0.08 });
+      element.style.pointerEvents = "none";
+    }
     svg.appendChild(element);
-    const ref = { element, baseColor: color, baseOpacity: isFactFact ? 0.7 : 0.08, highlightOpacity: isFactFact ? 1 : 0.5 };
+    const ref = { element, colorAttr, baseColor: color, baseOpacity: isFactFact ? 0.7 : 0.08, highlightOpacity: isFactFact ? 1 : 0.5 };
     trackLinkElement(line.fromId, ref);
     trackLinkElement(line.toId, ref);
   });
@@ -238,7 +271,7 @@ export function createCommitGraph2D(container, payload, theme, onSelect, onHover
     highlightedIds.forEach((id) => (linkElementsByEndpointId.get(id) || []).forEach((ref) => emphasizedLinkRefs.add(ref)));
     linkElementsByEndpointId.forEach((refs) => refs.forEach((ref) => {
       const emphasized = emphasizedLinkRefs.has(ref);
-      ref.element.setAttribute("stroke", emphasized ? highlightColor : ref.baseColor);
+      ref.element.setAttribute(ref.colorAttr, emphasized ? highlightColor : ref.baseColor);
       ref.element.setAttribute("opacity", emphasized ? ref.highlightOpacity : ref.baseOpacity);
     }));
   }
