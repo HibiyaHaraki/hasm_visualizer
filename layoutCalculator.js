@@ -37,6 +37,10 @@ export function computeVisualizerLayoutJS(model, filter) {
   });
 
   const earliestTime = facts.length > 0 ? timeKey(facts[0].occurred_at || facts[0].occurredAt) : 0;
+  // Tracks which EXPERIENCEs each FACT is directly registered on (not merely reflected onto via
+  // ancestry), so a FACT-EXPERIENCE LINK between a FACT and its own directly-registered EXPERIENCE
+  // can be skipped below - that relationship is already implied by the FACT sitting on that branch.
+  const directExperienceIdsByFactId = new Map();
 
   facts.forEach((fact, index) => {
     const tKey = timeKey(fact.occurred_at || fact.occurredAt);
@@ -44,6 +48,7 @@ export function computeVisualizerLayoutJS(model, filter) {
 
     const expIds = fact.experience_ids || fact.experienceIds || [];
     const directExperienceIds = new Set(expIds.map(String));
+    directExperienceIdsByFactId.set(String(fact.fact_id || fact.id), directExperienceIds);
     const reflectedExperiences = new Set();
     expIds.forEach((experienceId) => collectExperienceAndAncestors(String(experienceId), experiences, reflectedExperiences));
     const visibleBranches = reflectedExperiences.size > 0 ? reflectedExperiences : new Set([null]);
@@ -153,6 +158,10 @@ export function computeVisualizerLayoutJS(model, filter) {
         // the FACT's own point.
         const factNode = isFactExperience ? (fromNode.entityType === "FACT" ? fromNode : toNode) : null;
         const experienceNode = isFactExperience ? (fromNode.entityType === "EXPERIENCE" ? fromNode : toNode) : null;
+        // A FACT-EXPERIENCE LINK where the FACT is directly registered on that same EXPERIENCE is
+        // redundant (already implied by branch membership) and was rendering as a degenerate,
+        // effectively invisible sliver collinear with the branch tube - skip it entirely.
+        if (factNode && experienceNode && directExperienceIdsByFactId.get(factNode.id)?.has(experienceNode.id)) continue;
         const experienceRange = experienceNode ? experienceRangeById.get(experienceNode.id) : null;
         let linkShape = "LINE";
         const extra = {};
