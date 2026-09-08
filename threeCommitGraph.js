@@ -152,6 +152,16 @@ function createTimelineLabel(text, color) {
   return sprite;
 }
 
+// Deterministic per-link sideways bow direction (same id always bows the same way), so a LINK that
+// would otherwise run flush along an EXPERIENCE's own branch tube renders as a visible curve instead
+// of a straight line hidden inside it, and distinct LINKs on the same branch fan out rather than stack.
+function lateralOffsetForId(id, magnitude) {
+  let hash = 0;
+  for (let index = 0; index < id.length; index += 1) hash = (hash * 31 + id.charCodeAt(index)) >>> 0;
+  const angle = (hash % 360) * (Math.PI / 180);
+  return [Math.cos(angle) * magnitude, Math.sin(angle) * magnitude];
+}
+
 // Replaces the xy-plane grid with a single Z-axis timeline. Tick positions come directly from the FACT z
 // coordinates already computed by the selected TimeScaleMode, so the axis adapts to Linear/Logarithmic/SequentialIndex automatically.
 function createTimelineAxis(scene, payload, factDatesById, color) {
@@ -244,6 +254,7 @@ export function createCommitGraph(container, payload, theme, onSelect, onHover, 
   const fovCulledMeshes = [];
   const experienceMeshesById = new Map();
   const factMeshesById = new Map();
+  const experienceLabelObjects = [];
   const highlightColor = ensureReadableColor(theme.textColor, theme.textBackgroundColor);
   // BRANCH_OUT lands on the child EXPERIENCE (`to`); BRANCH_MERGE departs from it (`from`); everything else uses `to`.
   const resolveLineColor = (line) => {
@@ -267,11 +278,20 @@ export function createCommitGraph(container, payload, theme, onSelect, onHover, 
     if (node) {
       timelineLines.push(mesh);
       experienceMeshesById.set(node.id, mesh);
+      // Unlike the FACT/EXPERIENCE tooltip (hover-only), the EXPERIENCE name itself must always be
+      // legible - a sprite with depthTest disabled never gets hidden behind FACT boxes or other
+      // branch tubes, unlike a name simply drawn onto the tube's own material.
+      const label = createTimelineLabel(node.label, color);
+      label.position.set(from.x - 1.4, from.y, from.z);
+      label.renderOrder = 1;
+      scene.add(label);
+      experienceLabelObjects.push(label);
     }
     lineMeshes.push(mesh);
     fovCulledMeshes.push(mesh);
     scene.add(mesh);
   });
+
 
   // LINK entities: a FACT-FACT LINK is a thin line shown at all times; any LINK touching an
   // EXPERIENCE/PERSON instead renders as a translucent "membrane" always visible at high
@@ -296,40 +316,15 @@ export function createCommitGraph(container, payload, theme, onSelect, onHover, 
       const material = new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.6 });
       mesh = new THREE.Line(geometry, material);
       mesh.userData = { baseColor: color, baseOpacity: 0.6, highlightOpacity: 1 };
-    } else if (line.linkShape === "RECT" && line.rect) {
-      // EXPERIENCE-EXPERIENCE membrane: a flat quad spanning each branch's full first-to-last-FACT
-      // extent, not just a line between two representative points.
-      const { fromZStart, fromZEnd, toZStart, toZEnd } = line.rect;
-      const corners = [
-        new THREE.Vector3(from.x, from.y, fromZStart),
-        new THREE.Vector3(from.x, from.y, fromZEnd),
-        new THREE.Vector3(to.x, to.y, toZEnd),
-        new THREE.Vector3(to.x, to.y, toZStart),
-      ];
-      const geometry = new THREE.BufferGeometry().setFromPoints(corners);
-      geometry.setIndex([0, 1, 2, 0, 2, 3]);
-      geometry.computeVertexNormals();
-      const material = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.08, side: THREE.DoubleSide, depthWrite: false });
-      mesh = new THREE.Mesh(geometry, material);
-      mesh.userData = { baseColor: color, baseOpacity: 0.08, highlightOpacity: 0.5 };
-    } else if (line.linkShape === "TRIANGLE" && line.triangle) {
-      // FACT-EXPERIENCE membrane: a flat triangle from the EXPERIENCE's start/end points to the
-      // FACT's own point.
-      const { expX, expY, expZStart, expZEnd, factX, factY, factZ } = line.triangle;
-      const corners = [
-        new THREE.Vector3(expX, expY, expZStart),
-        new THREE.Vector3(expX, expY, expZEnd),
-        new THREE.Vector3(factX, factY, factZ),
-      ];
-      const geometry = new THREE.BufferGeometry().setFromPoints(corners);
-      geometry.setIndex([0, 1, 2]);
-      geometry.computeVertexNormals();
-      const material = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.08, side: THREE.DoubleSide, depthWrite: false });
-      mesh = new THREE.Mesh(geometry, material);
-      mesh.userData = { baseColor: color, baseOpacity: 0.08, highlightOpacity: 0.5 };
     } else {
-      const curve = new THREE.CatmullRomCurve3([from, to]);
-      const geometry = new THREE.TubeGeometry(curve, 1, 0.18, 8, false);
+      // Any LINK touching an EXPERIENCE (RECT/TRIANGLE membrane shapes) would otherwise run flush
+      // along that EXPERIENCE's own branch tube (same x/y, differing only in z) and end up fully
+      // hidden inside it - bow it sideways via a per-link deterministic offset so it always renders
+      // as a visible curved line instead of a flat, trunk-hugging surface.
+      const [offsetX, offsetY] = lateralOffsetForId(line.id, 0.6);
+      const control = new THREE.Vector3((from.x + to.x) / 2 + offsetX, (from.y + to.y) / 2 + offsetY, (from.z + to.z) / 2);
+      const curve = new THREE.QuadraticBezierCurve3(from, control, to);
+      const geometry = new THREE.TubeGeometry(curve, 16, 0.18, 8, false);
       const material = new THREE.MeshStandardMaterial({ color, transparent: true, opacity: 0.08, depthWrite: false });
       mesh = new THREE.Mesh(geometry, material);
       mesh.userData = { baseColor: color, baseOpacity: 0.08, highlightOpacity: 0.5 };
@@ -466,6 +461,7 @@ export function createCommitGraph(container, payload, theme, onSelect, onHover, 
       // Label textures live in a process-wide cache and are deliberately not disposed here.
       object.material?.dispose();
     });
+    experienceLabelObjects.forEach((sprite) => { sprite.material?.dispose(); });
     renderer.dispose();
     if (renderer.domElement.parentNode === container) {
       container.removeChild(renderer.domElement);

@@ -112,7 +112,11 @@ export function createCommitGraph2D(container, payload, theme, onSelect, onHover
       const trunkColor = trunkColorByPositionKey.get(key) || entityColors.EXPERIENCE;
       const label = document.createElement("span");
       label.textContent = node.label;
-      label.style.cssText = `position: absolute; left: ${laneXPx(key) + LANE_LABEL_GAP_PX}px; top: 50%; transform: translateY(-50%); color: ${trunkColor}; font-weight: 700; font-size: 0.78rem; white-space: nowrap;`;
+      label.title = node.label;
+      // Long names must never overlap into a neighboring lane's label and visually cover it (the
+      // later-appended label paints on top): clip to this lane's own width instead, full text is
+      // still available via the title tooltip.
+      label.style.cssText = `position: absolute; left: ${laneXPx(key) + LANE_LABEL_GAP_PX}px; top: 50%; transform: translateY(-50%); color: ${trunkColor}; font-weight: 700; font-size: 0.78rem; white-space: nowrap; max-width: ${Math.max(LANE_WIDTH_PX - LANE_LABEL_GAP_PX, 40)}px; overflow: hidden; text-overflow: ellipsis;`;
       header.appendChild(label);
     });
   container.appendChild(header);
