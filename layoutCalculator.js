@@ -137,6 +137,10 @@ export function computeVisualizerLayoutJS(model, filter) {
         const fromNode = nodeById.get(relatedIds[i]);
         const toNode = nodeById.get(relatedIds[j]);
         if (!fromNode || !toNode) continue;
+        // PERSON nodes sit at an arbitrary fixed placeholder position (not real FACT/EXPERIENCE
+        // geometry), so a LINK touching one renders as a stray, meaningless line/membrane -
+        // PERSON-related LINKs are no longer visualized at all.
+        if (fromNode.entityType === "PERSON" || toNode.entityType === "PERSON") continue;
         const isFactFact = fromNode.entityType === "FACT" && toNode.entityType === "FACT";
         const isExperienceExperience = fromNode.entityType === "EXPERIENCE" && toNode.entityType === "EXPERIENCE";
         const isFactExperience = (fromNode.entityType === "FACT" && toNode.entityType === "EXPERIENCE")
