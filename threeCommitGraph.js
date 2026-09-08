@@ -316,8 +316,27 @@ export function createCommitGraph(container, payload, theme, onSelect, onHover, 
       const material = new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.6 });
       mesh = new THREE.Line(geometry, material);
       mesh.userData = { baseColor: color, baseOpacity: 0.6, highlightOpacity: 1 };
+    } else if (line.linkShape === "RECT" && line.rect) {
+      // EXPERIENCE-EXPERIENCE membrane: a flat quad spanning each branch's full first-to-last-FACT
+      // extent. Both vertical edges would otherwise sit exactly on their own EXPERIENCE's branch
+      // tube (same x/y) and get hidden inside it, so the whole quad is nudged sideways by a
+      // deterministic per-link offset to clear both trunks.
+      const { fromZStart, fromZEnd, toZStart, toZEnd } = line.rect;
+      const [offsetX, offsetY] = lateralOffsetForId(line.id, 0.35);
+      const corners = [
+        new THREE.Vector3(from.x + offsetX, from.y + offsetY, fromZStart),
+        new THREE.Vector3(from.x + offsetX, from.y + offsetY, fromZEnd),
+        new THREE.Vector3(to.x + offsetX, to.y + offsetY, toZEnd),
+        new THREE.Vector3(to.x + offsetX, to.y + offsetY, toZStart),
+      ];
+      const geometry = new THREE.BufferGeometry().setFromPoints(corners);
+      geometry.setIndex([0, 1, 2, 0, 2, 3]);
+      geometry.computeVertexNormals();
+      const material = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.08, side: THREE.DoubleSide, depthWrite: false });
+      mesh = new THREE.Mesh(geometry, material);
+      mesh.userData = { baseColor: color, baseOpacity: 0.08, highlightOpacity: 0.5 };
     } else {
-      // Any LINK touching an EXPERIENCE (RECT/TRIANGLE membrane shapes) would otherwise run flush
+      // Any other LINK touching an EXPERIENCE (TRIANGLE membrane shapes) would otherwise run flush
       // along that EXPERIENCE's own branch tube (same x/y, differing only in z) and end up fully
       // hidden inside it - bow it sideways via a per-link deterministic offset so it always renders
       // as a visible curved line instead of a flat, trunk-hugging surface.
