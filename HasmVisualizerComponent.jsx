@@ -186,6 +186,26 @@ export function HasmVisualizerComponent({
   const laneCount = useMemo(() => (renderPayload ? computeLaneIndexByKey(renderPayload).size : 1), [renderPayload]);
   const graphPaneWidthPercent = Math.min(72, Math.max(30, laneCount * 12));
 
+  // LINK descriptions keyed by each endpoint entity id, so hovering a FACT (or any other linked
+  // entity) can surface "which LINK(s) touch this node" in the tooltip regardless of whether that
+  // LINK is currently drawn on screen (e.g. EXPERIENCE-related LINKs are hidden in 2D).
+  const linkDescriptionsByNodeId = useMemo(() => {
+    const map = new Map();
+    if (!renderPayload) return map;
+    const nodeLabelById = new Map(renderPayload.nodes3d.map((node) => [node.id, node.label]));
+    renderPayload.lines3d.filter((line) => line.lineType === 'LINK').forEach((line) => {
+      const fromLabel = nodeLabelById.get(line.fromId) || line.fromId;
+      const toLabel = nodeLabelById.get(line.toId) || line.toId;
+      const description = `${fromLabel} \u2194 ${toLabel}`;
+      [line.fromId, line.toId].forEach((id) => {
+        const list = map.get(id) || [];
+        list.push(description);
+        map.set(id, list);
+      });
+    });
+    return map;
+  }, [renderPayload]);
+
   // Shared vertical scroll offset between the 2D commit graph and the FACT table, so the dot for a
   // FACT and its table row stay at the same height no matter which pane is scrolled. Kept as a ref
   // (not React state): syncing through setState+useEffect adds a render round trip between the two
@@ -595,6 +615,9 @@ export function HasmVisualizerComponent({
             style={{ left: hoveredNode.x, top: hoveredNode.y }}
           >
             [{hoveredNode.entityType}] {hoveredNode.label}
+            {(linkDescriptionsByNodeId.get(hoveredNode.id) || []).map((description) => (
+              <div key={description} className="HasmVisualizer_TooltipLink">LINK: {description}</div>
+            ))}
           </div>
         )}
       </div>

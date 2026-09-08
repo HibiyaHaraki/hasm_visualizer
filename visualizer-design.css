@@ -13,6 +13,7 @@
 .graph-warning { color: var(--theme-danger); }
 .graph-notice { color: var(--theme-muted); }
 .graph-tooltip { position: fixed; z-index: 3; pointer-events: none; padding: 6px 9px; color: var(--theme-text); background: var(--theme-surface); border: 1px solid var(--theme-border); font-size: 0.8rem; }
+.HasmVisualizer_TooltipLink { margin-top: 3px; color: var(--theme-muted); font-size: 0.72rem; }
 .HasmVisualizer_RenderSpinner { position: absolute; inset: 14px 14px auto auto; z-index: 2; display: grid; place-items: center; width: 40px; height: 40px; border: 1px solid var(--theme-border); background: color-mix(in srgb, var(--theme-soft) 86%, transparent); }
 .HasmVisualizer_RenderSpinnerIcon { width: 18px; height: 18px; border: 2px solid color-mix(in srgb, var(--theme-primary) 28%, transparent); border-top-color: var(--theme-primary); border-radius: 50%; animation: HasmVisualizer_Spin 0.8s linear infinite; }
 @keyframes HasmVisualizer_Spin { to { transform: rotate(360deg); } }

@@ -278,6 +278,7 @@ export function createCommitGraph(container, payload, theme, onSelect, onHover, 
   // transmittance (very low opacity), which brightens when one of its endpoints is hovered
   // (toggled from setHighlight below, not FOV-culled).
   const linkMeshesByEndpointId = new Map();
+  const linkHoverMeshes = [];
   const trackLinkMesh = (id, mesh) => {
     const list = linkMeshesByEndpointId.get(id) || [];
     list.push(mesh);
@@ -287,6 +288,8 @@ export function createCommitGraph(container, payload, theme, onSelect, onHover, 
     const from = new THREE.Vector3(...line.from);
     const to = new THREE.Vector3(...line.to);
     const color = entityColors.LINK;
+    const fromLabel = nodeById.get(line.fromId)?.label || line.fromId;
+    const toLabel = nodeById.get(line.toId)?.label || line.toId;
     let mesh;
     if (line.linkCategory === "FACT_FACT") {
       const geometry = new THREE.BufferGeometry().setFromPoints([from, to]);
@@ -331,8 +334,15 @@ export function createCommitGraph(container, payload, theme, onSelect, onHover, 
       mesh = new THREE.Mesh(geometry, material);
       mesh.userData = { baseColor: color, baseOpacity: 0.08, highlightOpacity: 0.5 };
     }
+    // Extra hover metadata (on top of baseColor/baseOpacity above) so hovering this shape shows
+    // LINK information, and hovering it also highlights both of its endpoint entities.
+    mesh.userData.entityType = "LINK";
+    mesh.userData.id = line.id;
+    mesh.userData.label = `${fromLabel} \u2194 ${toLabel}`;
+    mesh.userData.linkedEntityIds = [line.fromId, line.toId];
     scene.add(mesh);
     lineMeshes.push(mesh);
+    linkHoverMeshes.push(mesh);
     trackLinkMesh(line.fromId, mesh);
     trackLinkMesh(line.toId, mesh);
   });
@@ -415,7 +425,7 @@ export function createCommitGraph(container, payload, theme, onSelect, onHover, 
   const intersectEntity = (event) => {
     pointerPosition(event);
     raycaster.setFromCamera(pointer, camera);
-    return raycaster.intersectObjects([...nodes, ...timelineLines].filter((mesh) => mesh.visible))[0]?.object.userData;
+    return raycaster.intersectObjects([...nodes, ...timelineLines, ...linkHoverMeshes].filter((mesh) => mesh.visible))[0]?.object.userData;
   };
   const handleMove = (event) => {
     if (performance.now() - lastHoverAt < 100) return;
