@@ -373,7 +373,7 @@ export function HasmVisualizerComponent({
             </label>
             <select
               id="hasm-visualizer-sample"
-              className="HasmVisualizer_Select"
+              className="HasmVisualizer_Select form-select form-select-sm"
               value={selectedModelIndex}
               onChange={(e) => {
                 viewStateByModeRef.current = {};
@@ -400,7 +400,7 @@ export function HasmVisualizerComponent({
             </label>
             <select
               id="hasm-visualizer-person-scope"
-              className="HasmVisualizer_Select HasmVisualizer_ScopeSelect"
+              className="HasmVisualizer_Select HasmVisualizer_ScopeSelect form-select form-select-sm"
               multiple
               size={Math.min(Math.max(personOptions.length, 2), 8)}
               value={scope.personIds}
@@ -414,7 +414,7 @@ export function HasmVisualizerComponent({
             <div className="HasmVisualizer_ScopeActions">
               <button
                 type="button"
-                className="HasmVisualizer_ViewToggleButton"
+                className="HasmVisualizer_ViewToggleButton btn btn-sm btn-outline-secondary"
                 onClick={() => applyPersonIds(personOptions.map((option) => option.id))}
                 disabled={personOptions.length === 0 || scope.personIds.length === personOptions.length}
               >
@@ -422,7 +422,7 @@ export function HasmVisualizerComponent({
               </button>
               <button
                 type="button"
-                className="HasmVisualizer_ViewToggleButton"
+                className="HasmVisualizer_ViewToggleButton btn btn-sm btn-outline-secondary"
                 onClick={() => applyPersonIds([])}
                 disabled={scope.personIds.length === 0}
               >
@@ -437,7 +437,7 @@ export function HasmVisualizerComponent({
             </label>
             <select
               id="hasm-visualizer-experience-scope"
-              className="HasmVisualizer_Select HasmVisualizer_ScopeSelect"
+              className="HasmVisualizer_Select HasmVisualizer_ScopeSelect form-select form-select-sm"
               multiple
               size={Math.min(Math.max(experienceOptions.length, 2), 8)}
               value={scope.experienceIds}
@@ -451,7 +451,7 @@ export function HasmVisualizerComponent({
             <div className="HasmVisualizer_ScopeActions">
               <button
                 type="button"
-                className="HasmVisualizer_ViewToggleButton"
+                className="HasmVisualizer_ViewToggleButton btn btn-sm btn-outline-secondary"
                 onClick={() => applyExperienceIds(experienceOptions.map((option) => option.id))}
                 disabled={experienceOptions.length === 0 || scope.experienceIds.length === experienceOptions.length}
               >
@@ -459,7 +459,7 @@ export function HasmVisualizerComponent({
               </button>
               <button
                 type="button"
-                className="HasmVisualizer_ViewToggleButton"
+                className="HasmVisualizer_ViewToggleButton btn btn-sm btn-outline-secondary"
                 onClick={() => applyExperienceIds([])}
                 disabled={scope.experienceIds.length === 0}
               >
@@ -471,7 +471,7 @@ export function HasmVisualizerComponent({
           <div className="HasmVisualizer_ScopeField">
             <button
               type="button"
-              className="HasmVisualizer_ViewToggleButton"
+              className="HasmVisualizer_ViewToggleButton btn btn-sm btn-outline-secondary"
               onClick={() => { setScope(EMPTY_SCOPE); setSelectedNode(null); }}
               disabled={isEmptyScope(scope)}
             >
@@ -488,17 +488,17 @@ export function HasmVisualizerComponent({
           <span className="HasmVisualizer_Label">
             {labels?.viewMode || 'View Mode'}
           </span>
-          <div className="HasmVisualizer_ViewToggle" role="group" aria-label="View mode">
+          <div className="HasmVisualizer_ViewToggle btn-group" role="group" aria-label="View mode">
             <button
               type="button"
-              className={`HasmVisualizer_ViewToggleButton${viewMode === '2d' ? ' is-active' : ''}`}
+              className={`HasmVisualizer_ViewToggleButton btn btn-sm btn-outline-secondary${viewMode === '2d' ? ' is-active active' : ''}`}
               onClick={() => setViewMode('2d')}
             >
               2D
             </button>
             <button
               type="button"
-              className={`HasmVisualizer_ViewToggleButton${viewMode === '3d' ? ' is-active' : ''}`}
+              className={`HasmVisualizer_ViewToggleButton btn btn-sm btn-outline-secondary${viewMode === '3d' ? ' is-active active' : ''}`}
               onClick={() => setViewMode('3d')}
             >
               3D
@@ -512,7 +512,7 @@ export function HasmVisualizerComponent({
           </label>
           <select
             id="hasm-visualizer-time-scale"
-            className="HasmVisualizer_Select"
+            className="HasmVisualizer_Select form-select form-select-sm"
             value={filter.timeScaleMode}
             onChange={(e) => setFilter(nextLayoutFilter(filter, 'timeScaleMode', e.target.value))}
           >
@@ -532,7 +532,7 @@ export function HasmVisualizerComponent({
             min="0.5"
             max="2.0"
             step="0.1"
-            className="HasmVisualizer_Input"
+            className="HasmVisualizer_Input form-range"
             value={filter.zScaleFactor}
             onChange={(e) => setFilter(nextLayoutFilter(filter, 'zScaleFactor', e.target.value))}
           />

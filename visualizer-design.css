@@ -5,6 +5,29 @@
 .visualizer-toolbar h1 { margin: 0; font-size: 1.4rem; }
 .visualizer-toolbar label { margin: 0; display: grid; gap: 5px; font-size: 0.82rem; }
 .visualizer-toolbar select, .visualizer-toolbar input { color: var(--theme-input-text); background: var(--theme-input-bg); border: 1px solid var(--theme-border); padding: 6px; }
+
+/* Bootstrap utility classNames (form-select/form-range/btn/btn-outline-secondary) are applied
+   alongside the HasmVisualizer_* classes below so controls match a Bootstrap host's look. This
+   component has no react-bootstrap/bootstrap dependency: these class names are inert no-ops when
+   Bootstrap's CSS isn't present, per the portability contract in README.md. */
+.HasmVisualizer_Container .form-select,
+.HasmVisualizer_Container .form-control,
+.HasmVisualizer_Container .form-range {
+  color: var(--theme-input-text);
+  background-color: var(--theme-input-bg);
+  border-color: var(--theme-border);
+}
+.HasmVisualizer_Container .btn-outline-secondary {
+  color: var(--theme-text);
+  border-color: var(--theme-border);
+}
+.HasmVisualizer_Container .btn-outline-secondary:hover,
+.HasmVisualizer_Container .btn-outline-secondary.active {
+  color: var(--theme-textbackground);
+  background-color: var(--theme-primary);
+  border-color: var(--theme-primary);
+}
+
 .graph-stage { position: relative; min-height: 520px; overflow: hidden; border: 1px solid var(--theme-border); background: var(--theme-textbackground); }
 .graph-canvas, .graph-stage canvas { position: absolute; inset: 0; display: block; width: 100%; height: 100%; touch-action: none; }
 .graph-progress, .graph-warning, .graph-notice { position: absolute; z-index: 2; margin: 14px; padding: 10px; border: 1px solid var(--theme-border); background: var(--theme-soft); }

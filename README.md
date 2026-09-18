@@ -31,6 +31,8 @@ Centralizes the 3D visualizer so multiple HASM projects can reuse the same imple
 
 This folder only depends on sibling `hasm_color_pattern` and `hasm_logger` folders via relative imports (`../hasm_color_pattern`, `../hasm_logger`). When consuming this repo as a submodule, place it alongside those two at the same depth (e.g. `src/hasm_visualizer`, `src/hasm_color_pattern`, `src/hasm_logger`).
 
+Controls in `HasmVisualizerComponent.jsx` also carry Bootstrap CSS utility class names (`form-select`, `form-range`, `btn`, `btn-outline-secondary`, `btn-group`) alongside the component's own `HasmVisualizer_*` classes, so it visually matches a host app that loads Bootstrap's CSS. This does not add a dependency: no `react-bootstrap`/`bootstrap` package is imported, the elements stay plain native `<select>`/`<button>`/`<input>`, and the Bootstrap class names are inert no-ops if the host never loads Bootstrap's CSS.
+
 ## Usage example
 
 Standalone demo over the bundled sample packages:
