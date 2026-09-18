@@ -100,13 +100,13 @@ export function HasmVisualizerComponent({
   // Camera/view state is kept per view mode: 2D (orthographic zoom) and 3D (perspective
   // position/quaternion) states are incompatible, so each mode restores only its own state.
   const viewStateByModeRef = useRef({});
-  const lastModeRef = useRef('3d');
+  const lastModeRef = useRef('2d');
   const hasComputedRef = useRef(false);
 
   const [selectedModelIndex, setSelectedModelIndex] = useState(0);
   const [filter, setFilter] = useState(DEFAULT_LAYOUT_FILTER);
   const [scope, setScope] = useState(EMPTY_SCOPE);
-  const [viewMode, setViewMode] = useState('3d');
+  const [viewMode, setViewMode] = useState('2d');
   const [hoveredNode, setHoveredNode] = useState(null);
   const [selectedNode, setSelectedNode] = useState(null);
   const [isSceneRendering, setIsSceneRendering] = useState(false);
@@ -120,7 +120,7 @@ export function HasmVisualizerComponent({
   const scopedModel = useMemo(() => scopeModel(activeModel, scope), [activeModel, scope]);
   const totalEntityCount = useMemo(() => countModelEntities(activeModel), [activeModel]);
   const scopedEntityCount = useMemo(() => countModelEntities(scopedModel), [scopedModel]);
-  const usesRenderBudget = viewMode === '3d';
+  const usesRenderBudget = viewMode === '2d';
   const { model: layoutModel, warning: layoutBudgetWarning } = useMemo(
     () => (usesRenderBudget ? limitModelForLayout(scopedModel, maxRenderedNodes) : { model: scopedModel, warning: '' }),
     [scopedModel, maxRenderedNodes, usesRenderBudget],
