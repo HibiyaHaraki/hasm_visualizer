@@ -79,7 +79,14 @@ Scope selection narrows the **model** before layout rather than trimming geometr
 - PERSON selection sets the pool; EXPERIENCE selection narrows within it. EXPERIENCE entries that stop belonging to any selected PERSON are dropped automatically.
 - `scopeModel` keeps the selected EXPERIENCEs plus their ancestors and descendants, the FACTs on those branches, the owning PERSONs, and only LINKs fully inside the scope.
 - The EXPERIENCE option list is filtered by the PERSON selection.
-- Z-axis tick labels are sampled to at most 60 and their textures are cached; all FACT commits share one geometry.
+- Z-axis tick labels are sampled to at most 60 and their textures are cached; FACT markers share their geometries.
+
+## Extended Commit Graph rendering
+
+- 3D uses the XY plane for EXPERIENCE distribution and Z for time. EXPERIENCE branches stay at fixed XY positions; solid FACT markers are recorded events and hollow markers are recursive reflections on ancestor branches.
+- 2D uses the horizontal axis for EXPERIENCE distribution and vertical rows for time, with the same solid/hollow FACT distinction. It displays FACT-to-FACT LINKs as dashed lines and EXPERIENCE-spanning LINKs as translucent, dashed-outline membranes.
+- PERSONs are used for ownership and scope selection, not rendered as graph nodes. LINK geometry remains provisional.
+- If the host cannot initialize WebGL or loses its context, the component logs the failure and falls back to the SVG-based 2D view.
 
 ## Suggested integration after adding as submodule
 

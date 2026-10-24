@@ -110,6 +110,9 @@ export function HasmVisualizerComponent({
   const [hoveredNode, setHoveredNode] = useState(null);
   const [selectedNode, setSelectedNode] = useState(null);
   const [isSceneRendering, setIsSceneRendering] = useState(false);
+  const [renderError, setRenderError] = useState('');
+  const rendererFallbackMessage = labels?.rendererFallback || '3D rendering is unavailable; switched to 2D.';
+  const renderingFailedMessage = labels?.renderingFailed || 'The 2D graph could not be rendered.';
 
   const currentSample = SAMPLE_HASM_MODELS[selectedModelIndex] || SAMPLE_HASM_MODELS[0];
   const activeModel = model || currentSample.model;
@@ -297,9 +300,8 @@ export function HasmVisualizerComponent({
     disposeSceneRef.current();
     lastModeRef.current = viewMode;
 
-    // Instantiate the graph via the 3D or 2D Three.js engine; both share the same layout
-    // payload and color derivation, so FACT/EXPERIENCE colors match across modes.
-    const createGraph = viewMode === '2d' ? createCommitGraph2D : createCommitGraph;
+    // Both renderers share the same layout payload and color derivation; 2D is SVG and does
+    // not require WebGL, so it remains available if the host cannot create a 3D context.
     setIsSceneRendering(true);
     let active = true;
     const schedule = window.requestAnimationFrame || ((callback) => window.setTimeout(callback, 0));
@@ -312,30 +314,58 @@ export function HasmVisualizerComponent({
       const tableEl = factTableRef.current?.querySelector('table');
       const measuredHeaderHeightPx = tableEl?.querySelector('thead th')?.getBoundingClientRect().height;
       const measuredRowHeightPx = tableEl?.querySelector('tbody tr')?.getBoundingClientRect().height;
-      disposeSceneRef.current = createGraph(
-        sceneRef.current,
-        renderPayload,
-        themeColors,
-        handleSelectNode,
-        (node, event) => {
-          if (node) {
-            setHoveredNode({ ...node, x: event.clientX, y: event.clientY });
-          } else {
-            setHoveredNode(null);
-          }
-        },
-        resolvedFactDates,
-        viewStateByModeRef.current[viewMode],
-        {
-          onScroll: (nextScrollTop) => syncScrollTop2D(nextScrollTop),
-          rowHeightPx: measuredRowHeightPx,
-          headerHeightPx: measuredHeaderHeightPx,
+      try {
+        const onHover = (node, event) => {
+          if (node) setHoveredNode({ ...node, x: event.clientX, y: event.clientY });
+          else setHoveredNode(null);
+        };
+        if (viewMode === '2d') {
+          disposeSceneRef.current = createCommitGraph2D(
+            sceneRef.current,
+            renderPayload,
+            themeColors,
+            handleSelectNode,
+            onHover,
+            resolvedFactDates,
+            viewStateByModeRef.current[viewMode],
+            {
+              onScroll: (nextScrollTop) => syncScrollTop2D(nextScrollTop),
+              rowHeightPx: measuredRowHeightPx,
+              headerHeightPx: measuredHeaderHeightPx,
+            },
+          );
+          // Keep the rebuilt graph at the FACT table's current shared scroll offset.
+          syncScrollTop2D(scrollTop2DRef.current);
+        } else {
+          const handleThreeError = (error) => {
+            logger.warn('Three.js rendering failed; switching to the 2D graph.', error);
+            setRenderError(rendererFallbackMessage);
+            setIsSceneRendering(false);
+            setViewMode('2d');
+          };
+          disposeSceneRef.current = createCommitGraph(
+            sceneRef.current,
+            renderPayload,
+            themeColors,
+            handleSelectNode,
+            onHover,
+            resolvedFactDates,
+            viewStateByModeRef.current[viewMode],
+            handleThreeError,
+          );
         }
-      );
-      // A rebuilt scene (model/filter change) must start from the table's current scroll offset,
-      // not the possibly-stale offset captured from the previous scene instance.
-      if (viewMode === '2d') syncScrollTop2D(scrollTop2DRef.current);
-      if (active) setIsSceneRendering(false);
+        if (active) setIsSceneRendering(false);
+      } catch (error) {
+        setIsSceneRendering(false);
+        if (viewMode === '3d') {
+          logger.warn('3D graph rendering failed; switching to the 2D graph.', error);
+          setRenderError(rendererFallbackMessage);
+          setViewMode('2d');
+        } else {
+          logger.error('2D graph rendering failed.', error);
+          setRenderError(renderingFailedMessage);
+        }
+      }
     });
 
     return () => {
@@ -353,7 +383,7 @@ export function HasmVisualizerComponent({
       }
       disposeSceneRef.current();
     };
-  }, [renderPayload, viewMode, colorPattern, handleSelectNode, resolvedFactDates]);
+  }, [renderPayload, viewMode, colorPattern, handleSelectNode, resolvedFactDates, rendererFallbackMessage, renderingFailedMessage]);
 
   const scopeSummary = isEmptyScope(scope)
     ? `${totalEntityCount} entities`
@@ -488,18 +518,18 @@ export function HasmVisualizerComponent({
           <span className="HasmVisualizer_Label">
             {labels?.viewMode || 'View Mode'}
           </span>
-          <div className="HasmVisualizer_ViewToggle btn-group" role="group" aria-label="View mode">
+          <div className="HasmVisualizer_ViewToggle btn-group" role="group" aria-label={labels?.viewMode || 'View mode'}>
             <button
               type="button"
               className={`HasmVisualizer_ViewToggleButton btn btn-sm btn-outline-secondary${viewMode === '2d' ? ' is-active active' : ''}`}
-              onClick={() => setViewMode('2d')}
+              onClick={() => { setRenderError(''); setViewMode('2d'); }}
             >
               2D
             </button>
             <button
               type="button"
               className={`HasmVisualizer_ViewToggleButton btn btn-sm btn-outline-secondary${viewMode === '3d' ? ' is-active active' : ''}`}
-              onClick={() => setViewMode('3d')}
+              onClick={() => { setRenderError(''); setViewMode('3d'); }}
             >
               3D
             </button>
@@ -600,6 +630,7 @@ export function HasmVisualizerComponent({
         )}
 
         {combinedBudgetWarning ? <p className="graph-warning HasmVisualizer_BudgetWarning">{combinedBudgetWarning}</p> : null}
+        {renderError ? <p className="graph-warning HasmVisualizer_RenderError" role="alert">{renderError}</p> : null}
 
         {isSceneRendering ? (
           <div className="HasmVisualizer_RenderSpinner" role="status" aria-label={labels?.rendering || 'Rendering visualizer'}>
@@ -625,21 +656,24 @@ export function HasmVisualizerComponent({
       {/* LEGEND */}
       <div className="HasmVisualizer_Legend">
         <div className="HasmVisualizer_LegendItem">
-          <div className="HasmVisualizer_LegendDot" style={{ background: '#d6b25e' }} />
-          PERSON (Box)
+          <span>{labels?.personLegend || 'PERSON (owner/group; not drawn as a node)'}</span>
         </div>
         <div className="HasmVisualizer_LegendItem">
-          <div className="HasmVisualizer_LegendDot" style={{ background: '#68a5d2' }} />
-          EXPERIENCE (Box / Timeline Branch)
+          <span className="HasmVisualizer_LegendMark HasmVisualizer_LegendExperience" aria-hidden="true" />
+          <span>{labels?.experienceLegend || 'EXPERIENCE (fixed-position timeline)'}</span>
         </div>
         <div className="HasmVisualizer_LegendItem">
-          <div className="HasmVisualizer_LegendDot" style={{ background: '#e08a65' }} />
-          FACT (Sphere / Occurred Event)
+          <span className="HasmVisualizer_LegendMark HasmVisualizer_LegendFact" aria-hidden="true" />
+          <span>{labels?.factLegend || 'FACT (solid = recorded; hollow = reflected)'}</span>
         </div>
-        <div style={{ marginLeft: 'auto', color: 'var(--theme-muted)', fontSize: '0.75rem', fontWeight: 'normal' }}>
+        <div className="HasmVisualizer_LegendItem">
+          <span className="HasmVisualizer_LegendMark HasmVisualizer_LegendLink" aria-hidden="true" />
+          <span>{labels?.linkLegend || 'LINK (dashed line / translucent membrane)'}</span>
+        </div>
+        <div className="HasmVisualizer_LegendHint">
           {viewMode === '2d'
-            ? '💡 Scroll to move along the time axis, click node to inspect'
-            : '💡 Drag to rotate, scroll to zoom, click node to inspect'}
+            ? (labels?.interaction2d || 'Scroll to move along time; click a marker to inspect.')
+            : (labels?.interaction3d || 'Drag to rotate, scroll to zoom, and click a marker to inspect.')}
         </div>
       </div>
 

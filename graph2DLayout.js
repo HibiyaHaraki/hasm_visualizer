@@ -10,7 +10,7 @@ export const TABLE_HEADER_HEIGHT_PX = 37;
 export const LANE_WIDTH_PX = 56;
 
 // One lane per parallel EXPERIENCE branch (root branches included), plus fallback
-// lanes for any other endpoint position (e.g. PERSON nodes referenced by LINK lines).
+// lanes for FACT positions that do not belong to a visible EXPERIENCE.
 // Lanes are ordered by depth, then by lane position — this count is what drives the
 // responsive left/right width split of the 2D view.
 export function computeLaneIndexByKey(payload) {
@@ -22,7 +22,7 @@ export function computeLaneIndexByKey(payload) {
     .forEach(({ key }) => {
       if (!laneIndexByKey.has(key)) laneIndexByKey.set(key, laneIndexByKey.size);
     });
-  payload.nodes3d.forEach((node) => {
+  payload.nodes3d.filter((node) => node.entityType === "FACT").forEach((node) => {
     const key = positionKey(node.x, node.y);
     if (!laneIndexByKey.has(key)) laneIndexByKey.set(key, laneIndexByKey.size);
   });
@@ -58,4 +58,3 @@ export function laneX(laneIndexByKey, key) {
 export function rowCenterY(rowIndex, rowHeightPx = ROW_HEIGHT_PX, headerHeightPx = TABLE_HEADER_HEIGHT_PX) {
   return headerHeightPx + rowIndex * rowHeightPx + rowHeightPx / 2;
 }
-

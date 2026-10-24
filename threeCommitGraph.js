@@ -206,7 +206,7 @@ function createTimelineAxis(scene, payload, factDatesById, color) {
   return disposables;
 }
 
-export function createCommitGraph(container, payload, theme, onSelect, onHover, factDatesById, initialViewState) {
+export function createCommitGraph(container, payload, theme, onSelect, onHover, factDatesById, initialViewState, onError) {
   const width = Math.max(container.clientWidth, 320);
   const height = Math.max(container.clientHeight, 360);
   const scene = new THREE.Scene();
@@ -224,7 +224,16 @@ export function createCommitGraph(container, payload, theme, onSelect, onHover, 
     camera.lookAt(0, 0, 5);
   }
 
-  const renderer = new THREE.WebGLRenderer({ antialias: true });
+  let renderer;
+  try {
+    renderer = new THREE.WebGLRenderer({ antialias: true });
+  } catch (error) {
+    if (onError) {
+      onError(error);
+      return () => {};
+    }
+    throw error;
+  }
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   renderer.setSize(width, height);
   container.appendChild(renderer.domElement);
@@ -313,9 +322,10 @@ export function createCommitGraph(container, payload, theme, onSelect, onHover, 
     let mesh;
     if (line.linkCategory === "FACT_FACT") {
       const geometry = new THREE.BufferGeometry().setFromPoints([from, to]);
-      const material = new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.6 });
+      const material = new THREE.LineDashedMaterial({ color, transparent: true, opacity: 0.7, dashSize: 0.35, gapSize: 0.2 });
       mesh = new THREE.Line(geometry, material);
-      mesh.userData = { baseColor: color, baseOpacity: 0.6, highlightOpacity: 1 };
+      mesh.computeLineDistances();
+      mesh.userData = { baseColor: color, baseOpacity: 0.7, highlightOpacity: 1 };
     } else if (line.linkShape === "RECT" && line.rect) {
       // EXPERIENCE-EXPERIENCE membrane: a flat quad spanning each branch's full first-to-last-FACT
       // extent. Both vertical edges would otherwise sit exactly on their own EXPERIENCE's branch
@@ -335,11 +345,22 @@ export function createCommitGraph(container, payload, theme, onSelect, onHover, 
       const material = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.08, side: THREE.DoubleSide, depthWrite: false });
       mesh = new THREE.Mesh(geometry, material);
       mesh.userData = { baseColor: color, baseOpacity: 0.08, highlightOpacity: 0.5 };
+    } else if (line.linkShape === "TRIANGLE" && line.triangle) {
+      const { expX, expY, expZStart, expZEnd, factX, factY, factZ } = line.triangle;
+      const [offsetX, offsetY] = lateralOffsetForId(line.id, 0.35);
+      const vertices = [
+        new THREE.Vector3(expX + offsetX, expY + offsetY, expZStart),
+        new THREE.Vector3(expX + offsetX, expY + offsetY, expZEnd),
+        new THREE.Vector3(factX + offsetX, factY + offsetY, factZ),
+      ];
+      const geometry = new THREE.BufferGeometry().setFromPoints(vertices);
+      geometry.setIndex([0, 1, 2]);
+      geometry.computeVertexNormals();
+      const material = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.08, side: THREE.DoubleSide, depthWrite: false });
+      mesh = new THREE.Mesh(geometry, material);
+      mesh.userData = { baseColor: color, baseOpacity: 0.08, highlightOpacity: 0.5 };
     } else {
-      // Any other LINK touching an EXPERIENCE (TRIANGLE membrane shapes) would otherwise run flush
-      // along that EXPERIENCE's own branch tube (same x/y, differing only in z) and end up fully
-      // hidden inside it - bow it sideways via a per-link deterministic offset so it always renders
-      // as a visible curved line instead of a flat, trunk-hugging surface.
+      // Unknown membrane shapes remain visible as a gently bowed placeholder.
       const [offsetX, offsetY] = lateralOffsetForId(line.id, 0.6);
       const control = new THREE.Vector3((from.x + to.x) / 2 + offsetX, (from.y + to.y) / 2 + offsetY, (from.z + to.z) / 2);
       const curve = new THREE.QuadraticBezierCurve3(from, control, to);
@@ -361,16 +382,17 @@ export function createCommitGraph(container, payload, theme, onSelect, onHover, 
     trackLinkMesh(line.toId, mesh);
   });
 
-  // One shared geometry for every FACT commit: allocating a BoxGeometry per node costs a separate
-  // GPU buffer each, which is the dominant memory cost on large packages.
-  const factGeometry = new THREE.BoxGeometry(0.62, 0.62, 0.62);
+  // FACTs are points: directly recorded ones are solid spheres; recursive ancestor reflections
+  // are hollow rings so they remain distinguishable without implying a second event.
+  const directFactGeometry = new THREE.SphereGeometry(0.28, 12, 8);
+  const reflectedFactGeometry = new THREE.TorusGeometry(0.22, 0.06, 6, 16);
   const nodes = payload.nodes3d.filter((node) => node.entityType === "FACT").map((node) => {
     const color = factColorByPositionKey.get(positionKey(node.x, node.y)) || entityColors.FACT;
-    const opacity = node.isDirectFact ? 1 : 0.32;
-    const material = new THREE.MeshStandardMaterial({ color, roughness: 0.45, metalness: 0.15, transparent: true, opacity, depthWrite: node.isDirectFact });
-    const mesh = new THREE.Mesh(factGeometry, material);
+    const geometry = node.isDirectFact ? directFactGeometry : reflectedFactGeometry;
+    const material = new THREE.MeshStandardMaterial({ color, roughness: 0.45, metalness: 0.15 });
+    const mesh = new THREE.Mesh(geometry, material);
     mesh.position.set(node.x, node.y, node.z);
-    mesh.userData = { ...node, baseColor: color, baseOpacity: opacity };
+    mesh.userData = { ...node, baseColor: color, baseOpacity: 1 };
     const meshes = factMeshesById.get(node.id) || [];
     meshes.push(mesh);
     factMeshesById.set(node.id, meshes);
@@ -395,9 +417,26 @@ export function createCommitGraph(container, payload, theme, onSelect, onHover, 
   };
 
   const renderVisibleScene = () => {
-    updateFovSelection();
-    renderer.render(scene, camera);
+    if (renderFailed) return;
+    try {
+      updateFovSelection();
+      renderer.render(scene, camera);
+    } catch (error) {
+      reportRendererError(error);
+    }
   };
+  let renderFailed = false;
+  const reportRendererError = (error) => {
+    if (renderFailed) return;
+    renderFailed = true;
+    if (onError) onError(error);
+    else throw error;
+  };
+  const handleContextLost = (event) => {
+    event.preventDefault();
+    reportRendererError(new Error("WebGL context was lost."));
+  };
+  renderer.domElement.addEventListener("webglcontextlost", handleContextLost);
 
   const setHighlight = (node) => {
     const highlightedIds = new Set(node ? [node.id, ...(node.linkedEntityIds || []), ...(node.parentExperienceIds || [])] : []);
@@ -472,7 +511,8 @@ export function createCommitGraph(container, payload, theme, onSelect, onHover, 
     renderer.domElement.removeEventListener("pointermove", handleMove);
     renderer.domElement.removeEventListener("click", handleClick);
     controls.dispose();
-    factGeometry.dispose();
+    directFactGeometry.dispose();
+    reflectedFactGeometry.dispose();
     nodes.forEach((node) => { node.material.dispose(); });
     lineMeshes.forEach((line) => { line.geometry.dispose(); line.material.dispose(); });
     timelineAxisObjects.forEach((object) => {
@@ -481,6 +521,7 @@ export function createCommitGraph(container, payload, theme, onSelect, onHover, 
       object.material?.dispose();
     });
     experienceLabelObjects.forEach((sprite) => { sprite.material?.dispose(); });
+    renderer.domElement.removeEventListener("webglcontextlost", handleContextLost);
     renderer.dispose();
     if (renderer.domElement.parentNode === container) {
       container.removeChild(renderer.domElement);

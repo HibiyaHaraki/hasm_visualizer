@@ -53,6 +53,11 @@
 }
 .HasmVisualizer_Container .HasmVisualizer_LegendItem { display: flex; align-items: center; gap: 6px; }
 .HasmVisualizer_Container .HasmVisualizer_LegendDot { width: 12px; height: 12px; border-radius: 2px; }
+.HasmVisualizer_Container .HasmVisualizer_LegendMark { display: inline-block; flex: 0 0 auto; }
+.HasmVisualizer_Container .HasmVisualizer_LegendExperience { width: 3px; height: 14px; background: var(--theme-primary); }
+.HasmVisualizer_Container .HasmVisualizer_LegendFact { width: 12px; height: 12px; border: 2px solid var(--theme-primary); border-radius: 50%; background: var(--theme-primary); }
+.HasmVisualizer_Container .HasmVisualizer_LegendLink { width: 22px; height: 0; border-top: 2px dashed var(--theme-primary); }
+.HasmVisualizer_Container .HasmVisualizer_LegendHint { margin-left: auto; color: var(--theme-muted); font-size: 0.75rem; font-weight: normal; }
 .HasmVisualizer_Container > .HasmVisualizer_Inspector {
   padding: 16px;
   border: 1px solid var(--theme-border);
@@ -170,6 +175,11 @@
   margin-right: 8px;
   vertical-align: middle;
 }
+.HasmVisualizer_Container .HasmVisualizer_RenderError {
+  top: 0;
+  right: 0;
+  color: var(--theme-danger);
+}
 .HasmVisualizer_Container .HasmVisualizer_FactTable td:last-child {
   white-space: nowrap;
   color: var(--theme-muted);
@@ -236,4 +246,3 @@
   inset: auto 0 0 auto;
   max-width: 46ch;
 }
-

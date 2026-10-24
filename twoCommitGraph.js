@@ -170,23 +170,49 @@ export function createCommitGraph2D(container, payload, theme, onSelect, onHover
     }
   });
 
-  // LINK entities: a FACT-FACT LINK is a thin dashed line shown at all times. Any LINK touching an
-  // EXPERIENCE (a "membrane" in 3D) is intentionally never drawn here - the 2D timeline pane only
-  // visualizes FACT-FACT relationships, keeping the pane readable.
+  // LINKs between two points are dashed lines; links to EXPERIENCE spans are translucent,
+  // dashed-outline membranes in both dimensions.
   const linkElementsByEndpointId = new Map();
   const trackLinkElement = (id, ref) => {
     const list = linkElementsByEndpointId.get(id) || [];
     list.push(ref);
     linkElementsByEndpointId.set(id, list);
   };
-  payload.lines3d.filter((line) => line.lineType === "LINK" && line.linkCategory === "FACT_FACT").forEach((line) => {
+  payload.lines3d.filter((line) => line.lineType === "LINK").forEach((line) => {
     const color = entityColors.LINK;
-    const from = toXY(line.from);
-    const to = toXY(line.to);
-    const element = svgEl("line", { x1: from.x, y1: from.y, x2: to.x, y2: to.y, stroke: color, "stroke-width": LINK_STROKE_PX, "stroke-dasharray": "6 5", opacity: 0.7 });
+    let points;
+    if (line.linkShape === "RECT" && line.rect) {
+      const { fromZStart, fromZEnd, toZStart, toZEnd } = line.rect;
+      points = [
+        toXY([line.from[0], line.from[1], fromZStart]),
+        toXY([line.from[0], line.from[1], fromZEnd]),
+        toXY([line.to[0], line.to[1], toZEnd]),
+        toXY([line.to[0], line.to[1], toZStart]),
+      ];
+    } else if (line.linkShape === "TRIANGLE" && line.triangle) {
+      const { expX, expY, expZStart, expZEnd, factX, factY, factZ } = line.triangle;
+      points = [
+        toXY([expX, expY, expZStart]),
+        toXY([expX, expY, expZEnd]),
+        toXY([factX, factY, factZ]),
+      ];
+    } else {
+      points = [toXY(line.from), toXY(line.to)];
+    }
+    const isMembrane = points.length > 2;
+    const pathData = `M ${points.map(({ x, y }) => `${x} ${y}`).join(" L ")}${isMembrane ? " Z" : ""}`;
+    const element = svgEl("path", {
+      d: pathData,
+      fill: isMembrane ? color : "none",
+      "fill-opacity": isMembrane ? 0.07 : 0,
+      stroke: color,
+      "stroke-width": LINK_STROKE_PX,
+      "stroke-dasharray": "6 5",
+      opacity: 0.7,
+    });
     element.style.cursor = "pointer";
     svg.appendChild(element);
-    const ref = { element, colorAttr: "stroke", baseColor: color, baseOpacity: 0.7, highlightOpacity: 1 };
+    const ref = { element, colorAttr: "stroke", baseColor: color, baseOpacity: 0.7, highlightOpacity: 1, isMembrane };
     trackLinkElement(line.fromId, ref);
     trackLinkElement(line.toId, ref);
     const fromLabel = nodeById.get(line.fromId)?.label || line.fromId;
@@ -206,15 +232,16 @@ export function createCommitGraph2D(container, payload, theme, onSelect, onHover
     .forEach((node) => {
       const key = positionKey(node.x, node.y);
       const color = factColorByPositionKey.get(key) || entityColors.FACT;
-      const opacity = node.isDirectFact ? 1 : 0.32;
       const circle = svgEl("circle", {
         cx: laneXPx(key), cy: factRowCenterY(node.id), r: FACT_RADIUS_PX,
-        fill: color, "fill-opacity": opacity,
+        fill: node.isDirectFact ? color : "none",
+        stroke: color,
+        "stroke-width": node.isDirectFact ? 0 : 2,
       });
       circle.style.cursor = "pointer";
       svg.appendChild(circle);
       attachHover(circle, () => node);
-      trackedElements.push({ element: circle, node, baseColor: color, baseOpacity: opacity });
+      trackedElements.push({ element: circle, node, baseColor: color });
 
       const elements = factElementsById.get(node.id) || [];
       elements.push(circle);
@@ -228,14 +255,16 @@ export function createCommitGraph2D(container, payload, theme, onSelect, onHover
       const experienceId = experienceIdByPositionKey.get(positionKey(node.x, node.y));
       if (experienceId) highlightedIds.add(experienceId);
     }
-    trackedElements.forEach(({ element, node: elementNode, baseColor, baseOpacity, isStroke }) => {
+    trackedElements.forEach(({ element, node: elementNode, baseColor, isStroke }) => {
       const highlighted = elementNode && highlightedIds.has(elementNode.id);
       const color = highlighted ? highlightColor : baseColor;
       if (isStroke) {
         element.setAttribute("stroke", color);
+      } else if (elementNode && !elementNode.isDirectFact) {
+        element.setAttribute("stroke", color);
+        element.setAttribute("fill", highlighted ? color : "none");
       } else {
         element.setAttribute("fill", color);
-        element.setAttribute("fill-opacity", highlighted ? 1 : baseOpacity);
       }
     });
 
@@ -247,6 +276,10 @@ export function createCommitGraph2D(container, payload, theme, onSelect, onHover
       const emphasized = emphasizedLinkRefs.has(ref);
       ref.element.setAttribute(ref.colorAttr, emphasized ? highlightColor : ref.baseColor);
       ref.element.setAttribute("opacity", emphasized ? ref.highlightOpacity : ref.baseOpacity);
+      if (ref.isMembrane) {
+        ref.element.setAttribute("fill", emphasized ? highlightColor : ref.baseColor);
+        ref.element.setAttribute("fill-opacity", emphasized ? 0.24 : 0.07);
+      }
     }));
   }
 
