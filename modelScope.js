@@ -70,15 +70,23 @@ function expandExperienceSelection(experiences, seedIds) {
     });
   });
 
-  // Ancestors keep branch/merge lines connected; descendants keep the selected story whole.
+  // Descend only from the selection, not from its ancestors (which would include siblings).
   const selected = new Set();
   const pending = [...seedIds];
   while (pending.length > 0) {
     const current = pending.pop();
     if (!current || selected.has(current)) continue;
     selected.add(current);
-    parentIdsOf(byId.get(current)).forEach((parentId) => pending.push(parentId));
     (childrenByParent.get(current) || []).forEach((childId) => pending.push(childId));
+  }
+  const ancestors = [...selected];
+  while (ancestors.length > 0) {
+    const current = ancestors.pop();
+    parentIdsOf(byId.get(current)).forEach((parentId) => {
+      if (selected.has(parentId)) return;
+      selected.add(parentId);
+      ancestors.push(parentId);
+    });
   }
   return selected;
 }
@@ -102,7 +110,8 @@ export function scopeModel(model, scope) {
   const scopedExperiences = experiences.filter((experience) => selectedExperienceIds.has(experienceIdOf(experience)));
   const scopedFacts = (model.facts || []).filter((fact) => {
     if (factExperienceIdsOf(fact).some((id) => selectedExperienceIds.has(id))) return true;
-    return personIds.size > 0 && factPersonIdsOf(fact).some((id) => personIds.has(id));
+    return (scope.experienceIds || []).length === 0
+      && personIds.size > 0 && factPersonIdsOf(fact).some((id) => personIds.has(id));
   });
 
   const keptPersonIds = new Set(personIds);

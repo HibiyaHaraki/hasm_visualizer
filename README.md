@@ -76,8 +76,9 @@ Driving a host application's own package, with layout computed by a backend:
 Scope selection narrows the **model** before layout rather than trimming geometry afterwards, so neither the layout engine nor the GPU ever sees the whole package:
 
 - Both scope controls are multi-select. A plain click **toggles** one entry and keeps the rest of the selection, so any number of PERSONs and EXPERIENCEs can be combined without holding Ctrl/Cmd. Modifier-click and keyboard range selection still behave natively, and each control has **All** / **None** buttons.
+- The PERSON control is hidden when the package has fewer than two PERSONs; EXPERIENCE selection remains available.
 - PERSON selection sets the pool; EXPERIENCE selection narrows within it. EXPERIENCE entries that stop belonging to any selected PERSON are dropped automatically.
-- `scopeModel` keeps the selected EXPERIENCEs plus their ancestors and descendants, the FACTs on those branches, the owning PERSONs, and only LINKs fully inside the scope.
+- `scopeModel` keeps the selected EXPERIENCEs and their descendants, then adds ancestors for connectivity without expanding into siblings. FACTs follow the retained branches. PERSON-only FACTs are included only when no explicit EXPERIENCE selection is applied, so PERSON selection cannot override EXPERIENCE narrowing.
 - The EXPERIENCE option list is filtered by the PERSON selection.
 - Z-axis tick labels are sampled to at most 60 and their textures are cached; FACT markers share their geometries.
 
@@ -85,6 +86,8 @@ Scope selection narrows the **model** before layout rather than trimming geometr
 
 - 3D uses the XY plane for EXPERIENCE distribution and Z for time. EXPERIENCE branches stay at fixed XY positions; solid FACT markers are recorded events and hollow markers are recursive reflections on ancestor branches.
 - 2D uses the horizontal axis for EXPERIENCE distribution and vertical rows for time, with the same solid/hollow FACT distinction. It displays FACT-to-FACT LINKs as dashed lines and EXPERIENCE-spanning LINKs as translucent, dashed-outline membranes.
+- The 2D graph width uses the shared lane geometry, placing the FACT/Time table immediately after the rightmost lane's label area. Many lanes cause horizontal scrolling rather than clipping or a percentage-based empty gap.
+- Z scale multiplies 2D row height (30px at 1x) and the matching SVG coordinates together. Rows remain newest-first and equally spaced regardless of time mode; 3D continues to apply Z scale to the layout's time coordinates. A failed layout retains the previous row scale.
 - PERSONs are used for ownership and scope selection, not rendered as graph nodes. LINK geometry remains provisional.
 - If the host cannot initialize WebGL or loses its context, the component logs the failure and falls back to the SVG-based 2D view.
 

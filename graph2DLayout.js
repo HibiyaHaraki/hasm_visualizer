@@ -8,6 +8,11 @@ import { positionKey } from "./threeCommitGraph.js";
 export const ROW_HEIGHT_PX = 30;
 export const TABLE_HEADER_HEIGHT_PX = 37;
 export const LANE_WIDTH_PX = 56;
+export const LANE_LEFT_MARGIN_PX = 21;
+
+export function graphWidthForLaneCount(laneCount) {
+  return LANE_LEFT_MARGIN_PX + Math.max(1, laneCount) * LANE_WIDTH_PX + 10;
+}
 
 // One lane per parallel EXPERIENCE branch (root branches included), plus fallback
 // lanes for FACT positions that do not belong to a visible EXPERIENCE.

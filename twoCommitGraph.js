@@ -6,10 +6,12 @@ import {
 } from "./threeCommitGraph.js";
 import {
   LANE_WIDTH_PX,
+  LANE_LEFT_MARGIN_PX,
   ROW_HEIGHT_PX,
   TABLE_HEADER_HEIGHT_PX,
   computeFactRowIndexById,
   computeLaneIndexByKey,
+  graphWidthForLaneCount,
   laneX,
   rowCenterY,
 } from "./graph2DLayout.js";
@@ -27,9 +29,6 @@ const FACT_RADIUS_PX = 7;
 const BRANCH_STROKE_PX = 4;
 const LINK_STROKE_PX = 1.5;
 const LANE_LABEL_GAP_PX = 10;
-// Keeps lane 0's dots/branch lines/labels clear of the pane's left edge (a 0px-inset element would
-// otherwise be half-clipped, hiding the first EXPERIENCE).
-const LANE_LEFT_MARGIN_PX = FACT_RADIUS_PX + 14;
 
 function svgEl(tag, attrs = {}) {
   const el = document.createElementNS(SVG_NS, tag);
@@ -81,7 +80,7 @@ export function createCommitGraph2D(container, payload, theme, onSelect, onHover
     y: rowYByZ.get(point[2]) ?? zFallbackY(point[2]),
   });
 
-  const graphWidthPx = Math.max(1, laneIndexByKey.size) * LANE_WIDTH_PX + LANE_LEFT_MARGIN_PX + 40;
+  const graphWidthPx = graphWidthForLaneCount(laneIndexByKey.size);
   const contentHeightPx = headerHeightPx + rowCount * rowHeightPx;
 
   // Scrollable content lives in a plain, non-scrolling wrapper moved by `transform: translateY`;

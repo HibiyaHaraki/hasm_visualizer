@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createCommitGraph, buildEntityColors, buildExperienceColorMaps, positionKey, limitRenderedNodes, DEFAULT_MAX_RENDERED_NODES } from './threeCommitGraph.js';
 import { createCommitGraph2D } from './twoCommitGraph.js';
-import { computeFactRowIndexById, computeLaneIndexByKey, ROW_HEIGHT_PX, TABLE_HEADER_HEIGHT_PX } from './graph2DLayout.js';
+import { computeFactRowIndexById, computeLaneIndexByKey, graphWidthForLaneCount, ROW_HEIGHT_PX, TABLE_HEADER_HEIGHT_PX } from './graph2DLayout.js';
 import { DEFAULT_LAYOUT_FILTER, nextLayoutFilter, TIME_SCALE_MODES } from './layoutFilter.js';
 import { computeVisualizerLayoutJS } from './layoutCalculator.js';
 import { SAMPLE_HASM_MODELS } from './sampleModels.js';
@@ -133,12 +133,13 @@ export function HasmVisualizerComponent({
   // Layout is computed once per model/filter/scope change and shared by the graph effect below and
   // the 2D FACT table, so the table rows stay aligned with the graph lanes.
   const [layoutPayload, setLayoutPayload] = useState(null);
+  const [renderedZScale, setRenderedZScale] = useState(DEFAULT_LAYOUT_FILTER.zScaleFactor);
   useEffect(() => {
     if (needsScope) {
       setLayoutPayload(null);
       return undefined;
     }
-    logger.debug('Computing visualizer layout', { filter, scope, entityCount: scopedEntityCount });
+    logger.debug('[SEQ-MD-03][LAYOUT] Computing visualizer layout', { filter, scope, entityCount: scopedEntityCount });
 
     let active = true;
     const isFilterUpdate = hasComputedRef.current;
@@ -153,6 +154,7 @@ export function HasmVisualizerComponent({
         if (!active || !payload) return;
         hasComputedRef.current = true;
         setLayoutPayload(payload);
+        setRenderedZScale(filter.zScaleFactor);
       })
       .catch((error) => {
         // The host owns error presentation and routing; keep the previous scene mounted.
@@ -172,7 +174,7 @@ export function HasmVisualizerComponent({
   const combinedBudgetWarning = [layoutBudgetWarning, budgetWarning].filter(Boolean).join(' ');
 
   // 2D-mode helpers: fact rows (newest first, matching graph rows) and the lane count that
-  // drives the responsive left/right width split (more parallel EXPERIENCEs -> wider graph pane).
+  // drives the graph's pixel width so the FACT table follows the last EXPERIENCE lane.
   const factRows = useMemo(() => {
     if (!renderPayload) return [];
     const factNodeById = new Map();
@@ -187,7 +189,8 @@ export function HasmVisualizerComponent({
     return rows.filter(Boolean);
   }, [renderPayload]);
   const laneCount = useMemo(() => (renderPayload ? computeLaneIndexByKey(renderPayload).size : 1), [renderPayload]);
-  const graphPaneWidthPercent = Math.min(72, Math.max(30, laneCount * 12));
+  const graphPaneWidthPx = graphWidthForLaneCount(laneCount);
+  const rowHeightPx = ROW_HEIGHT_PX * renderedZScale;
 
   // LINK descriptions keyed by each endpoint entity id, so hovering a FACT (or any other linked
   // entity) can surface "which LINK(s) touch this node" in the tooltip regardless of whether that
@@ -221,9 +224,9 @@ export function HasmVisualizerComponent({
     const el = factTableRef.current;
     const maxScrollTop = el
       ? Math.max(0, el.scrollHeight - el.clientHeight)
-      : Math.max(0, factRows.length * ROW_HEIGHT_PX + TABLE_HEADER_HEIGHT_PX);
+      : Math.max(0, factRows.length * rowHeightPx + TABLE_HEADER_HEIGHT_PX);
     return Math.min(Math.max(value, 0), maxScrollTop);
-  }, [factRows.length]);
+  }, [factRows.length, rowHeightPx]);
   // Imperatively pushes a scroll offset to both panes in one synchronous call, so the table row and
   // graph dot move together on the very same frame instead of one lagging behind a React re-render.
   const syncScrollTop2D = useCallback((value) => {
@@ -330,8 +333,8 @@ export function HasmVisualizerComponent({
             viewStateByModeRef.current[viewMode],
             {
               onScroll: (nextScrollTop) => syncScrollTop2D(nextScrollTop),
-              rowHeightPx: measuredRowHeightPx,
-              headerHeightPx: measuredHeaderHeightPx,
+              rowHeightPx: measuredRowHeightPx || rowHeightPx,
+              headerHeightPx: measuredHeaderHeightPx || TABLE_HEADER_HEIGHT_PX,
             },
           );
           // Keep the rebuilt graph at the FACT table's current shared scroll offset.
@@ -383,7 +386,7 @@ export function HasmVisualizerComponent({
       }
       disposeSceneRef.current();
     };
-  }, [renderPayload, viewMode, colorPattern, handleSelectNode, resolvedFactDates, rendererFallbackMessage, renderingFailedMessage]);
+  }, [renderPayload, viewMode, colorPattern, handleSelectNode, resolvedFactDates, rendererFallbackMessage, renderingFailedMessage, rowHeightPx]);
 
   const scopeSummary = isEmptyScope(scope)
     ? `${totalEntityCount} entities`
@@ -424,42 +427,44 @@ export function HasmVisualizerComponent({
         {/* SCOPE SELECTION: limits how much of a large package is laid out and rendered.
             Both controls accept any number of entries; a plain click toggles one entry. */}
         <div className="HasmVisualizer_ControlGroup HasmVisualizer_ScopeGroup">
-          <div className="HasmVisualizer_ScopeField">
-            <label className="HasmVisualizer_Label" htmlFor="hasm-visualizer-person-scope">
-              {labels?.personScope || 'PERSON scope'}
-            </label>
-            <select
-              id="hasm-visualizer-person-scope"
-              className="HasmVisualizer_Select HasmVisualizer_ScopeSelect form-select form-select-sm"
-              multiple
-              size={Math.min(Math.max(personOptions.length, 2), 8)}
-              value={scope.personIds}
-              onMouseDown={(event) => toggleOptionOnPlainClick(event, applyPersonIds)}
-              onChange={(event) => applyPersonIds(selectedValues(event.currentTarget))}
-            >
-              {personOptions.map((option) => (
-                <option key={option.id} value={option.id}>{option.label}</option>
-              ))}
-            </select>
-            <div className="HasmVisualizer_ScopeActions">
-              <button
-                type="button"
-                className="HasmVisualizer_ViewToggleButton btn btn-sm btn-outline-secondary"
-                onClick={() => applyPersonIds(personOptions.map((option) => option.id))}
-                disabled={personOptions.length === 0 || scope.personIds.length === personOptions.length}
+          {personOptions.length > 1 && (
+            <div className="HasmVisualizer_ScopeField">
+              <label className="HasmVisualizer_Label" htmlFor="hasm-visualizer-person-scope">
+                {labels?.personScope || 'PERSON scope'}
+              </label>
+              <select
+                id="hasm-visualizer-person-scope"
+                className="HasmVisualizer_Select HasmVisualizer_ScopeSelect form-select form-select-sm"
+                multiple
+                size={Math.min(Math.max(personOptions.length, 2), 8)}
+                value={scope.personIds}
+                onMouseDown={(event) => toggleOptionOnPlainClick(event, applyPersonIds)}
+                onChange={(event) => applyPersonIds(selectedValues(event.currentTarget))}
               >
-                {labels?.selectAll || 'All'}
-              </button>
-              <button
-                type="button"
-                className="HasmVisualizer_ViewToggleButton btn btn-sm btn-outline-secondary"
-                onClick={() => applyPersonIds([])}
-                disabled={scope.personIds.length === 0}
-              >
-                {labels?.selectNone || 'None'}
-              </button>
+                {personOptions.map((option) => (
+                  <option key={option.id} value={option.id}>{option.label}</option>
+                ))}
+              </select>
+              <div className="HasmVisualizer_ScopeActions">
+                <button
+                  type="button"
+                  className="HasmVisualizer_ViewToggleButton btn btn-sm btn-outline-secondary"
+                  onClick={() => applyPersonIds(personOptions.map((option) => option.id))}
+                  disabled={personOptions.length === 0 || scope.personIds.length === personOptions.length}
+                >
+                  {labels?.selectAll || 'All'}
+                </button>
+                <button
+                  type="button"
+                  className="HasmVisualizer_ViewToggleButton btn btn-sm btn-outline-secondary"
+                  onClick={() => applyPersonIds([])}
+                  disabled={scope.personIds.length === 0}
+                >
+                  {labels?.selectNone || 'None'}
+                </button>
+              </div>
             </div>
-          </div>
+          )}
 
           <div className="HasmVisualizer_ScopeField">
             <label className="HasmVisualizer_Label" htmlFor="hasm-visualizer-experience-scope">
@@ -580,15 +585,14 @@ export function HasmVisualizerComponent({
               || `This package holds ${totalEntityCount} entities. Select a PERSON or EXPERIENCE scope above to visualize part of it.`}
           </p>
         ) : viewMode === '2d' ? (
-          <div className="HasmVisualizer_Split2D">
+          <div className="HasmVisualizer_Split2D" style={{ '--HasmVisualizer-row-height': `${rowHeightPx}px` }}>
             <div
               className="graph-canvas HasmVisualizer_Canvas HasmVisualizer_GraphPane2D"
-              style={{ width: `${graphPaneWidthPercent}%` }}
+              style={{ width: `${graphPaneWidthPx}px` }}
               ref={sceneRef}
             />
             <div
               className="HasmVisualizer_FactTablePane"
-              style={{ width: `${100 - graphPaneWidthPercent}%` }}
               ref={factTableRef}
               onScroll={(event) => syncScrollTop2D(event.currentTarget.scrollTop)}
             >
