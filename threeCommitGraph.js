@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
+import { createLinkGeometryResolver, linkHighlightIds } from "./linkGeometry.js";
 
 function hexToRgb(hexColor) {
   const hex = String(hexColor).replace("#", "");
@@ -152,16 +153,6 @@ function createTimelineLabel(text, color) {
   return sprite;
 }
 
-// Deterministic per-link sideways bow direction (same id always bows the same way), so a LINK that
-// would otherwise run flush along an EXPERIENCE's own branch tube renders as a visible curve instead
-// of a straight line hidden inside it, and distinct LINKs on the same branch fan out rather than stack.
-function lateralOffsetForId(id, magnitude) {
-  let hash = 0;
-  for (let index = 0; index < id.length; index += 1) hash = (hash * 31 + id.charCodeAt(index)) >>> 0;
-  const angle = (hash % 360) * (Math.PI / 180);
-  return [Math.cos(angle) * magnitude, Math.sin(angle) * magnitude];
-}
-
 // Replaces the xy-plane grid with a single Z-axis timeline. Tick positions come directly from the FACT z
 // coordinates already computed by the selected TimeScaleMode, so the axis adapts to Linear/Logarithmic/SequentialIndex automatically.
 function createTimelineAxis(scene, payload, factDatesById, color) {
@@ -207,8 +198,8 @@ function createTimelineAxis(scene, payload, factDatesById, color) {
 }
 
 export function createCommitGraph(container, payload, theme, onSelect, onHover, factDatesById, initialViewState, onError) {
-  const width = Math.max(container.clientWidth, 320);
-  const height = Math.max(container.clientHeight, 360);
+  const width = Math.max(container.clientWidth, 1);
+  const height = Math.max(container.clientHeight, 1);
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(theme.textBackgroundColor);
   const entityColors = buildEntityColors(theme);
@@ -302,10 +293,8 @@ export function createCommitGraph(container, payload, theme, onSelect, onHover, 
   });
 
 
-  // LINK entities: a FACT-FACT LINK is a thin line shown at all times; any LINK touching an
-  // EXPERIENCE/PERSON instead renders as a translucent "membrane" always visible at high
-  // transmittance (very low opacity), which brightens when one of its endpoints is hovered
-  // (toggled from setHighlight below, not FOV-culled).
+  const resolveLinkGeometry = createLinkGeometryResolver(payload);
+  const linkRecords = [];
   const linkMeshesByEndpointId = new Map();
   const linkHoverMeshes = [];
   const trackLinkMesh = (id, mesh) => {
@@ -314,61 +303,14 @@ export function createCommitGraph(container, payload, theme, onSelect, onHover, 
     linkMeshesByEndpointId.set(id, list);
   };
   payload.lines3d.filter((line) => line.lineType === "LINK").forEach((line) => {
-    const from = new THREE.Vector3(...line.from);
-    const to = new THREE.Vector3(...line.to);
     const color = entityColors.LINK;
     const fromLabel = nodeById.get(line.fromId)?.label || line.fromId;
     const toLabel = nodeById.get(line.toId)?.label || line.toId;
-    let mesh;
-    if (line.linkCategory === "FACT_FACT") {
-      const geometry = new THREE.BufferGeometry().setFromPoints([from, to]);
-      const material = new THREE.LineDashedMaterial({ color, transparent: true, opacity: 0.7, dashSize: 0.35, gapSize: 0.2 });
-      mesh = new THREE.Line(geometry, material);
-      mesh.computeLineDistances();
-      mesh.userData = { baseColor: color, baseOpacity: 0.7, highlightOpacity: 1 };
-    } else if (line.linkShape === "RECT" && line.rect) {
-      // EXPERIENCE-EXPERIENCE membrane: a flat quad spanning each branch's full first-to-last-FACT
-      // extent. Both vertical edges would otherwise sit exactly on their own EXPERIENCE's branch
-      // tube (same x/y) and get hidden inside it, so the whole quad is nudged sideways by a
-      // deterministic per-link offset to clear both trunks.
-      const { fromZStart, fromZEnd, toZStart, toZEnd } = line.rect;
-      const [offsetX, offsetY] = lateralOffsetForId(line.id, 0.35);
-      const corners = [
-        new THREE.Vector3(from.x + offsetX, from.y + offsetY, fromZStart),
-        new THREE.Vector3(from.x + offsetX, from.y + offsetY, fromZEnd),
-        new THREE.Vector3(to.x + offsetX, to.y + offsetY, toZEnd),
-        new THREE.Vector3(to.x + offsetX, to.y + offsetY, toZStart),
-      ];
-      const geometry = new THREE.BufferGeometry().setFromPoints(corners);
-      geometry.setIndex([0, 1, 2, 0, 2, 3]);
-      geometry.computeVertexNormals();
-      const material = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.08, side: THREE.DoubleSide, depthWrite: false });
-      mesh = new THREE.Mesh(geometry, material);
-      mesh.userData = { baseColor: color, baseOpacity: 0.08, highlightOpacity: 0.5 };
-    } else if (line.linkShape === "TRIANGLE" && line.triangle) {
-      const { expX, expY, expZStart, expZEnd, factX, factY, factZ } = line.triangle;
-      const [offsetX, offsetY] = lateralOffsetForId(line.id, 0.35);
-      const vertices = [
-        new THREE.Vector3(expX + offsetX, expY + offsetY, expZStart),
-        new THREE.Vector3(expX + offsetX, expY + offsetY, expZEnd),
-        new THREE.Vector3(factX + offsetX, factY + offsetY, factZ),
-      ];
-      const geometry = new THREE.BufferGeometry().setFromPoints(vertices);
-      geometry.setIndex([0, 1, 2]);
-      geometry.computeVertexNormals();
-      const material = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.08, side: THREE.DoubleSide, depthWrite: false });
-      mesh = new THREE.Mesh(geometry, material);
-      mesh.userData = { baseColor: color, baseOpacity: 0.08, highlightOpacity: 0.5 };
-    } else {
-      // Unknown membrane shapes remain visible as a gently bowed placeholder.
-      const [offsetX, offsetY] = lateralOffsetForId(line.id, 0.6);
-      const control = new THREE.Vector3((from.x + to.x) / 2 + offsetX, (from.y + to.y) / 2 + offsetY, (from.z + to.z) / 2);
-      const curve = new THREE.QuadraticBezierCurve3(from, control, to);
-      const geometry = new THREE.TubeGeometry(curve, 16, 0.18, 8, false);
-      const material = new THREE.MeshStandardMaterial({ color, transparent: true, opacity: 0.08, depthWrite: false });
-      mesh = new THREE.Mesh(geometry, material);
-      mesh.userData = { baseColor: color, baseOpacity: 0.08, highlightOpacity: 0.5 };
-    }
+    const geometry = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]);
+    geometry.setAttribute("lineDistance", new THREE.Float32BufferAttribute([0, 0], 1));
+    const material = new THREE.LineDashedMaterial({ color, transparent: true, opacity: 0.7, dashSize: 0.35, gapSize: 0.2 });
+    const mesh = new THREE.Line(geometry, material);
+    mesh.userData = { baseColor: color, baseOpacity: 0.7, highlightOpacity: 1 };
     // Extra hover metadata (on top of baseColor/baseOpacity above) so hovering this shape shows
     // LINK information, and hovering it also highlights both of its endpoint entities.
     mesh.userData.entityType = "LINK";
@@ -378,6 +320,7 @@ export function createCommitGraph(container, payload, theme, onSelect, onHover, 
     scene.add(mesh);
     lineMeshes.push(mesh);
     linkHoverMeshes.push(mesh);
+    linkRecords.push({ line, mesh });
     trackLinkMesh(line.fromId, mesh);
     trackLinkMesh(line.toId, mesh);
   });
@@ -393,6 +336,14 @@ export function createCommitGraph(container, payload, theme, onSelect, onHover, 
     const mesh = new THREE.Mesh(geometry, material);
     mesh.position.set(node.x, node.y, node.z);
     mesh.userData = { ...node, baseColor: color, baseOpacity: 1 };
+    if (!node.isDirectFact) {
+      // Pick the hollow center as FACT too, instead of the timeline behind the ring.
+      const hitTarget = new THREE.Mesh(directFactGeometry, material);
+      hitTarget.position.copy(mesh.position);
+      hitTarget.userData = mesh.userData;
+      hitTarget.updateMatrixWorld();
+      mesh.raycast = (raycaster, intersections) => hitTarget.raycast(raycaster, intersections);
+    }
     const meshes = factMeshesById.get(node.id) || [];
     meshes.push(mesh);
     factMeshesById.set(node.id, meshes);
@@ -403,6 +354,26 @@ export function createCommitGraph(container, payload, theme, onSelect, onHover, 
 
   const frustum = new THREE.Frustum();
   const projectionMatrix = new THREE.Matrix4();
+  const updateLinkGeometry = () => {
+    const viewport = {
+      width: renderer.domElement.clientWidth || width,
+      height: renderer.domElement.clientHeight || height,
+      project: (point) => new THREE.Vector4(...point, 1).applyMatrix4(projectionMatrix).toArray(),
+    };
+    linkRecords.forEach(({ line, mesh }) => {
+      const endpoints = resolveLinkGeometry(line, viewport);
+      mesh.visible = Boolean(endpoints);
+      if (!endpoints) return;
+      const positions = mesh.geometry.getAttribute("position");
+      positions.setXYZ(0, ...endpoints.from);
+      positions.setXYZ(1, ...endpoints.to);
+      positions.needsUpdate = true;
+      mesh.geometry.computeBoundingSphere();
+      const distances = mesh.geometry.getAttribute("lineDistance");
+      distances.setX(1, Math.hypot(...endpoints.to.map((value, index) => value - endpoints.from[index])));
+      distances.needsUpdate = true;
+    });
+  };
   const cullingSphere = new THREE.Sphere();
   const updateFovSelection = () => {
     camera.updateMatrixWorld();
@@ -420,6 +391,7 @@ export function createCommitGraph(container, payload, theme, onSelect, onHover, 
     if (renderFailed) return;
     try {
       updateFovSelection();
+      updateLinkGeometry();
       renderer.render(scene, camera);
     } catch (error) {
       reportRendererError(error);
@@ -457,7 +429,7 @@ export function createCommitGraph(container, payload, theme, onSelect, onHover, 
     // LINK meshes are always visible; emphasize (brighter color, higher opacity) whenever a
     // hovered node owns one of their endpoints.
     const emphasizedLinkMeshes = new Set();
-    highlightedIds.forEach((id) => (linkMeshesByEndpointId.get(id) || []).forEach((mesh) => emphasizedLinkMeshes.add(mesh)));
+    linkHighlightIds(node).forEach((id) => (linkMeshesByEndpointId.get(id) || []).forEach((mesh) => emphasizedLinkMeshes.add(mesh)));
     linkMeshesByEndpointId.forEach((meshes) => meshes.forEach((mesh) => {
       const emphasized = emphasizedLinkMeshes.has(mesh);
       mesh.material.color.set(emphasized ? highlightColor : mesh.userData.baseColor);
@@ -491,24 +463,33 @@ export function createCommitGraph(container, payload, theme, onSelect, onHover, 
     const node = intersectEntity(event);
     if (node) onSelect(node);
   };
+  const handleLeave = (event) => {
+    setHighlight(null);
+    onHover(null, event);
+  };
   renderer.domElement.addEventListener("pointermove", handleMove);
+  renderer.domElement.addEventListener("pointerleave", handleLeave);
   renderer.domElement.addEventListener("click", handleClick);
 
   const resize = () => {
-    const nextWidth = Math.max(container.clientWidth, 320);
-    const nextHeight = Math.max(container.clientHeight, 360);
+    const nextWidth = Math.max(container.clientWidth, 1);
+    const nextHeight = Math.max(container.clientHeight, 1);
     camera.aspect = nextWidth / nextHeight;
     camera.updateProjectionMatrix();
     renderer.setSize(nextWidth, nextHeight);
     renderVisibleScene();
   };
   window.addEventListener("resize", resize);
+  const resizeObserver = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(resize);
+  resizeObserver?.observe(container);
   controls.addEventListener("change", renderVisibleScene);
   renderVisibleScene();
 
   const disposeFn = () => {
     window.removeEventListener("resize", resize);
+    resizeObserver?.disconnect();
     renderer.domElement.removeEventListener("pointermove", handleMove);
+    renderer.domElement.removeEventListener("pointerleave", handleLeave);
     renderer.domElement.removeEventListener("click", handleClick);
     controls.dispose();
     directFactGeometry.dispose();

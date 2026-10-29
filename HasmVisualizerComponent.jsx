@@ -193,8 +193,7 @@ export function HasmVisualizerComponent({
   const rowHeightPx = ROW_HEIGHT_PX * renderedZScale;
 
   // LINK descriptions keyed by each endpoint entity id, so hovering a FACT (or any other linked
-  // entity) can surface "which LINK(s) touch this node" in the tooltip regardless of whether that
-  // LINK is currently drawn on screen (e.g. EXPERIENCE-related LINKs are hidden in 2D).
+  // entity) can surface "which LINK(s) touch this node" even if its other endpoint is off-screen.
   const linkDescriptionsByNodeId = useMemo(() => {
     const map = new Map();
     if (!renderPayload) return map;
@@ -319,7 +318,7 @@ export function HasmVisualizerComponent({
       const measuredRowHeightPx = tableEl?.querySelector('tbody tr')?.getBoundingClientRect().height;
       try {
         const onHover = (node, event) => {
-          if (node) setHoveredNode({ ...node, x: event.clientX, y: event.clientY });
+          if (node) setHoveredNode({ ...node, screenX: event.clientX, screenY: event.clientY });
           else setHoveredNode(null);
         };
         if (viewMode === '2d') {
@@ -613,7 +612,7 @@ export function HasmVisualizerComponent({
                       <tr
                         key={row.id}
                         className={isActive ? 'is-active' : ''}
-                        onMouseEnter={(event) => setHoveredNode({ ...row, x: event.clientX, y: event.clientY })}
+                        onMouseEnter={(event) => setHoveredNode({ ...row, screenX: event.clientX, screenY: event.clientY })}
                         onMouseLeave={() => setHoveredNode(null)}
                         onClick={() => handleSelectNode(row)}
                       >
@@ -647,7 +646,7 @@ export function HasmVisualizerComponent({
         {hoveredNode && (
           <div
             className="graph-tooltip HasmVisualizer_Tooltip"
-            style={{ left: hoveredNode.x, top: hoveredNode.y }}
+            style={{ left: hoveredNode.screenX, top: hoveredNode.screenY }}
           >
             [{hoveredNode.entityType}] {hoveredNode.label}
             {(linkDescriptionsByNodeId.get(hoveredNode.id) || []).map((description) => (
@@ -672,7 +671,7 @@ export function HasmVisualizerComponent({
         </div>
         <div className="HasmVisualizer_LegendItem">
           <span className="HasmVisualizer_LegendMark HasmVisualizer_LegendLink" aria-hidden="true" />
-          <span>{labels?.linkLegend || 'LINK (dashed line / translucent membrane)'}</span>
+          <span>{labels?.linkLegend || 'LINK (dashed line)'}</span>
         </div>
         <div className="HasmVisualizer_LegendHint">
           {viewMode === '2d'

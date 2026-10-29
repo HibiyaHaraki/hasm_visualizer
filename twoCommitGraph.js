@@ -15,6 +15,7 @@ import {
   laneX,
   rowCenterY,
 } from "./graph2DLayout.js";
+import { createLinkGeometryResolver, linkHighlightIds } from "./linkGeometry.js";
 
 // Git-Extensions-style 2D commit graph rendered as plain SVG — not Three.js. The pane never
 // scrolls natively (no scrollbar, no rubber-band momentum of its own): it is a fixed-size overlay
@@ -169,8 +170,11 @@ export function createCommitGraph2D(container, payload, theme, onSelect, onHover
     }
   });
 
-  // LINKs between two points are dashed lines; links to EXPERIENCE spans are translucent,
-  // dashed-outline membranes in both dimensions.
+  const resolveLinkGeometry = createLinkGeometryResolver(payload, (point) => {
+    const { x, y } = toXY(point);
+    return [x, y, 0];
+  });
+  const linkRecords = [];
   const linkElementsByEndpointId = new Map();
   const trackLinkElement = (id, ref) => {
     const list = linkElementsByEndpointId.get(id) || [];
@@ -179,31 +183,8 @@ export function createCommitGraph2D(container, payload, theme, onSelect, onHover
   };
   payload.lines3d.filter((line) => line.lineType === "LINK").forEach((line) => {
     const color = entityColors.LINK;
-    let points;
-    if (line.linkShape === "RECT" && line.rect) {
-      const { fromZStart, fromZEnd, toZStart, toZEnd } = line.rect;
-      points = [
-        toXY([line.from[0], line.from[1], fromZStart]),
-        toXY([line.from[0], line.from[1], fromZEnd]),
-        toXY([line.to[0], line.to[1], toZEnd]),
-        toXY([line.to[0], line.to[1], toZStart]),
-      ];
-    } else if (line.linkShape === "TRIANGLE" && line.triangle) {
-      const { expX, expY, expZStart, expZEnd, factX, factY, factZ } = line.triangle;
-      points = [
-        toXY([expX, expY, expZStart]),
-        toXY([expX, expY, expZEnd]),
-        toXY([factX, factY, factZ]),
-      ];
-    } else {
-      points = [toXY(line.from), toXY(line.to)];
-    }
-    const isMembrane = points.length > 2;
-    const pathData = `M ${points.map(({ x, y }) => `${x} ${y}`).join(" L ")}${isMembrane ? " Z" : ""}`;
     const element = svgEl("path", {
-      d: pathData,
-      fill: isMembrane ? color : "none",
-      "fill-opacity": isMembrane ? 0.07 : 0,
+      fill: "none",
       stroke: color,
       "stroke-width": LINK_STROKE_PX,
       "stroke-dasharray": "6 5",
@@ -211,7 +192,8 @@ export function createCommitGraph2D(container, payload, theme, onSelect, onHover
     });
     element.style.cursor = "pointer";
     svg.appendChild(element);
-    const ref = { element, colorAttr: "stroke", baseColor: color, baseOpacity: 0.7, highlightOpacity: 1, isMembrane };
+    const ref = { element, colorAttr: "stroke", baseColor: color, baseOpacity: 0.7, highlightOpacity: 1 };
+    linkRecords.push({ line, element });
     trackLinkElement(line.fromId, ref);
     trackLinkElement(line.toId, ref);
     const fromLabel = nodeById.get(line.fromId)?.label || line.fromId;
@@ -236,6 +218,7 @@ export function createCommitGraph2D(container, payload, theme, onSelect, onHover
         fill: node.isDirectFact ? color : "none",
         stroke: color,
         "stroke-width": node.isDirectFact ? 0 : 2,
+        "pointer-events": "all",
       });
       circle.style.cursor = "pointer";
       svg.appendChild(circle);
@@ -267,25 +250,60 @@ export function createCommitGraph2D(container, payload, theme, onSelect, onHover
       }
     });
 
-    // LINK elements: emphasize (brighter color, fuller opacity) whenever a hovered endpoint owns
-    // them; MEMBRANE-category LINKs are additionally revealed from fully transparent only then.
     const emphasizedLinkRefs = new Set();
-    highlightedIds.forEach((id) => (linkElementsByEndpointId.get(id) || []).forEach((ref) => emphasizedLinkRefs.add(ref)));
+    linkHighlightIds(node).forEach((id) => (linkElementsByEndpointId.get(id) || []).forEach((ref) => emphasizedLinkRefs.add(ref)));
     linkElementsByEndpointId.forEach((refs) => refs.forEach((ref) => {
       const emphasized = emphasizedLinkRefs.has(ref);
       ref.element.setAttribute(ref.colorAttr, emphasized ? highlightColor : ref.baseColor);
       ref.element.setAttribute("opacity", emphasized ? ref.highlightOpacity : ref.baseOpacity);
-      if (ref.isMembrane) {
-        ref.element.setAttribute("fill", emphasized ? highlightColor : ref.baseColor);
-        ref.element.setAttribute("fill-opacity", emphasized ? 0.24 : 0.07);
-      }
     }));
   }
 
   // The FACT table owns real scrolling; this pane only mirrors its scrollTop via transform, so
   // scroll physics (momentum, rubber-banding) exist in exactly one place and can't fight themselves.
   let scrollTop = initialViewState && Number.isFinite(initialViewState.scrollTop) ? initialViewState.scrollTop : 0;
-  const applyTransform = () => { contentWrapper.style.transform = `translateY(${-scrollTop}px)`; };
+  const updateLinkGeometry = () => {
+    const bounds = container.getBoundingClientRect();
+    let left = Math.max(bounds.left, 0);
+    let right = Math.min(bounds.right, window.innerWidth);
+    let top = Math.max(bounds.top + headerHeightPx, 0);
+    let bottom = Math.min(bounds.bottom, window.innerHeight);
+    for (let parent = container.parentElement; parent; parent = parent.parentElement) {
+      const style = getComputedStyle(parent);
+      const rect = parent.getBoundingClientRect();
+      if (/(auto|scroll|hidden|clip)/.test(style.overflowX)) {
+        left = Math.max(left, rect.left);
+        right = Math.min(right, rect.right);
+      }
+      if (/(auto|scroll|hidden|clip)/.test(style.overflowY)) {
+        top = Math.max(top, rect.top);
+        bottom = Math.min(bottom, rect.bottom);
+      }
+    }
+    const viewportWidth = Math.max(1, right - left);
+    const viewportHeight = Math.max(1, bottom - top);
+    const viewport = {
+      width: viewportWidth,
+      height: viewportHeight,
+      project: ([x, y]) => [
+        2 * (x - (left - bounds.left)) / viewportWidth - 1,
+        1 - 2 * (y - scrollTop - (top - bounds.top)) / viewportHeight,
+        0, 1,
+      ],
+    };
+    linkRecords.forEach(({ line, element }) => {
+      const endpoints = right > left && bottom > top ? resolveLinkGeometry(line, viewport) : null;
+      element.style.display = endpoints ? "" : "none";
+      if (!endpoints) return;
+      const [fromX, fromY] = endpoints.from;
+      const [toX, toY] = endpoints.to;
+      element.setAttribute("d", `M ${fromX} ${fromY} L ${toX} ${toY}`);
+    });
+  };
+  const applyTransform = () => {
+    contentWrapper.style.transform = `translateY(${-scrollTop}px)`;
+    updateLinkGeometry();
+  };
   const setScrollTop = (nextScrollTop) => {
     scrollTop = nextScrollTop;
     applyTransform();
@@ -299,9 +317,16 @@ export function createCommitGraph2D(container, payload, theme, onSelect, onHover
     scrollSync?.onScroll(scrollTop + event.deltaY);
   };
   container.addEventListener("wheel", handleWheel, { passive: false });
+  window.addEventListener("resize", updateLinkGeometry);
+  window.addEventListener("scroll", updateLinkGeometry, true);
+  const resizeObserver = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(updateLinkGeometry);
+  resizeObserver?.observe(container);
 
   const disposeFn = () => {
     container.removeEventListener("wheel", handleWheel);
+    window.removeEventListener("resize", updateLinkGeometry);
+    window.removeEventListener("scroll", updateLinkGeometry, true);
+    resizeObserver?.disconnect();
     container.textContent = "";
     container.style.overflow = "";
   };
