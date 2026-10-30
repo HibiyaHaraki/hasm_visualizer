@@ -34,7 +34,7 @@
 }
 .HasmVisualizer_Container .btn-outline-secondary:hover,
 .HasmVisualizer_Container .btn-outline-secondary.active {
-  color: var(--theme-textbackground);
+  color: var(--theme-on-accent, var(--theme-textbackground));
   background-color: var(--theme-primary);
   border-color: var(--theme-primary);
 }
