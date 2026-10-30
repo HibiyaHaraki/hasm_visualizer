@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { createCommitGraph, buildEntityColors, buildExperienceColorMaps, positionKey, limitRenderedNodes, DEFAULT_MAX_RENDERED_NODES } from './threeCommitGraph.js';
 import { createCommitGraph2D } from './twoCommitGraph.js';
-import { computeFactRowIndexById, computeLaneIndexByKey, graphWidthForLaneCount, ROW_HEIGHT_PX, TABLE_HEADER_HEIGHT_PX } from './graph2DLayout.js';
+import { computeFactRowIndexById, computeLaneIndexByKey, graphWidthForLaneCount, ROW_HEIGHT_PX, TABLE_HEADER_HEIGHT_PX, TIME_AXIS_WIDTH_PX } from './graph2DLayout.js';
 import { DEFAULT_LAYOUT_FILTER, nextLayoutFilter, TIME_SCALE_MODES } from './layoutFilter.js';
 import { computeVisualizerLayoutJS } from './layoutCalculator.js';
 import { SAMPLE_HASM_MODELS } from './sampleModels.js';
@@ -157,6 +157,8 @@ export function HasmVisualizerComponent({
   // the 2D FACT table, so the table rows stay aligned with the graph lanes.
   const [layoutPayload, setLayoutPayload] = useState(null);
   const [renderedZScale, setRenderedZScale] = useState(DEFAULT_LAYOUT_FILTER.zScaleFactor);
+  const [renderedTimeScale, setRenderedTimeScale] = useState(DEFAULT_LAYOUT_FILTER.timeScaleMode);
+  const isTimeAxis2D = renderedTimeScale !== 'SequentialIndex';
   useEffect(() => {
     if (needsScope) {
       setLayoutPayload(null);
@@ -178,6 +180,7 @@ export function HasmVisualizerComponent({
         hasComputedRef.current = true;
         setLayoutPayload(payload);
         setRenderedZScale(filter.zScaleFactor);
+        setRenderedTimeScale(filter.timeScaleMode);
       })
       .catch((error) => {
         // The host owns error presentation and routing; keep the previous scene mounted.
@@ -212,7 +215,7 @@ export function HasmVisualizerComponent({
     return rows.filter(Boolean);
   }, [renderPayload]);
   const laneCount = useMemo(() => (renderPayload ? computeLaneIndexByKey(renderPayload).size : 1), [renderPayload]);
-  const graphPaneWidthPx = graphWidthForLaneCount(laneCount);
+  const graphPaneWidthPx = graphWidthForLaneCount(laneCount) + (isTimeAxis2D ? TIME_AXIS_WIDTH_PX : 0);
   const rowHeightPx = ROW_HEIGHT_PX * renderedZScale;
 
   // LINK descriptions keyed by each endpoint entity id, so hovering a FACT (or any other linked
@@ -357,10 +360,12 @@ export function HasmVisualizerComponent({
               onScroll: (nextScrollTop) => syncScrollTop2D(nextScrollTop),
               rowHeightPx: measuredRowHeightPx || rowHeightPx,
               headerHeightPx: measuredHeaderHeightPx || TABLE_HEADER_HEIGHT_PX,
+              timeScaleMode: renderedTimeScale,
+              timeLabel: labels?.factTime || 'Time',
             },
           );
           // Keep the rebuilt graph at the FACT table's current shared scroll offset.
-          syncScrollTop2D(scrollTop2DRef.current);
+          if (!isTimeAxis2D) syncScrollTop2D(scrollTop2DRef.current);
         } else {
           const handleThreeError = (error) => {
             logger.warn('Three.js rendering failed; switching to the 2D graph.', error);
@@ -408,7 +413,7 @@ export function HasmVisualizerComponent({
       }
       disposeSceneRef.current();
     };
-  }, [renderPayload, viewMode, colorPattern, handleSelectNode, resolvedFactDates, rendererFallbackMessage, renderingFailedMessage, rowHeightPx]);
+  }, [renderPayload, viewMode, colorPattern, handleSelectNode, resolvedFactDates, rendererFallbackMessage, renderingFailedMessage, rowHeightPx, renderedTimeScale, labels?.factTime]);
 
   const scopeSummary = isEmptyScope(scope)
     ? `${totalEntityCount} entities`
@@ -631,10 +636,10 @@ export function HasmVisualizerComponent({
           <div className="HasmVisualizer_Split2D" style={{ '--HasmVisualizer-row-height': `${rowHeightPx}px` }}>
             <div
               className="graph-canvas HasmVisualizer_Canvas HasmVisualizer_GraphPane2D"
-              style={{ width: `${graphPaneWidthPx}px` }}
+              style={{ width: `${graphPaneWidthPx}px`, ...(isTimeAxis2D ? { minWidth: '100%' } : {}) }}
               ref={sceneRef}
             />
-            <div
+            {!isTimeAxis2D && <div
               className="HasmVisualizer_FactTablePane"
               ref={factTableRef}
               onScroll={(event) => syncScrollTop2D(event.currentTarget.scrollTop)}
@@ -670,7 +675,7 @@ export function HasmVisualizerComponent({
                   })}
                 </tbody>
               </table>
-            </div>
+            </div>}
           </div>
         ) : (
           <div className="graph-canvas HasmVisualizer_Canvas" ref={sceneRef} />
@@ -693,6 +698,9 @@ export function HasmVisualizerComponent({
             style={{ left: hoveredNode.screenX, top: hoveredNode.screenY }}
           >
             [{hoveredNode.entityType}] {hoveredNode.label}
+            {viewMode === '2d' && isTimeAxis2D && hoveredNode.entityType === 'FACT' && (
+              <div>{labels?.factTime || 'Time'}: {resolvedFactDates.get(hoveredNode.id) || ''}</div>
+            )}
             {(linkDescriptionsByNodeId.get(hoveredNode.id) || []).map((description) => (
               <div key={description} className="HasmVisualizer_TooltipLink">LINK: {description}</div>
             ))}

@@ -9,7 +9,7 @@ shared even when a host supplies a layout through `computeLayout`.
 | --- | --- | --- |
 | PERSON | Not drawn. Used for ownership and scope selection. | Same. |
 | EXPERIENCE | A colored timeline at a fixed XY position, with time along Z. The name is displayed at the branch start. | A colored vertical lane with its name in the fixed header. |
-| FACT | A solid sphere on each directly registered EXPERIENCE; a hollow ring on every recursively inherited ancestor EXPERIENCE. | A solid circle for direct registration and a hollow circle for ancestor reflection, aligned with the corresponding FACT table row. |
+| FACT | A solid sphere on each directly registered EXPERIENCE; a hollow ring on every recursively inherited ancestor EXPERIENCE. | A solid circle for direct registration and a hollow circle for ancestor reflection, aligned with the FACT table row in SequentialIndex or the time Y-axis otherwise. |
 | LINK | A straight dashed line between the endpoints described below. | The same rule, using SVG paths without a filled surface. |
 
 EXPERIENCE timelines run from their earliest to latest reflected or direct FACT.
@@ -23,8 +23,14 @@ fallback lane. PERSON-related LINKs are not drawn.
 
 Colors derive from the supplied HASM theme, with readable contrast and a
 distinct hue per EXPERIENCE. Direct and reflected FACTs use their lane's hue.
-3D time coordinates follow the selected time scale and Z scale. 2D always uses
-equally spaced, newest-first FACT rows; Z scale changes the row height.
+3D time coordinates follow the selected time scale and Z scale. 2D SequentialIndex
+keeps equally spaced, newest-first FACT rows and its FACT/Time table; Z scale changes
+row height. Linear/Logarithmic hide the table and project layout time coordinates
+onto a newest-first Y-axis, retaining distance ratios and aligning simultaneous
+FACTs (including reflections). Ticks show FACT dates; overlapping labels are omitted,
+not moved. Z scale changes the timeline extent. These modes use native graph
+scrolling with a fixed header; FACT names/dates appear on hover and clicks still
+select the entity.
 
 ## LINK endpoints
 
@@ -56,8 +62,9 @@ The visible portion is clipped to the current viewport:
 
 - In 3D this includes the camera's side, near, and far planes. Perspective
   interpolation keeps the chosen point on the actual timeline.
-- In 2D this excludes the fixed header and accounts for synchronized vertical
-  scrolling and clipping/horizontal scrolling by containing panels.
+- In 2D this excludes the fixed header and accounts for synchronized table scrolling
+  (SequentialIndex) or native graph scrolling (Linear/Logarithmic), plus
+  clipping/horizontal scrolling by containing panels.
 - Camera changes, scrolling, and resizing recompute the attachment points.
 - If a required EXPERIENCE timeline is missing or entirely outside the viewport,
   the LINK is hidden until it becomes visible. A FACT on or behind the 3D camera
@@ -117,5 +124,5 @@ node --test src/hasm_visualizer/test/*.test.js
 ```
 
 Tests cover viewport clipping, perspective and aspect-ratio correctness,
-non-linear-time to 2D-row mapping, legacy layout input, recursive FACT hover,
+time-to-Y projection and SequentialIndex rows, legacy layout input, recursive FACT hover,
 scroll updates, and dashed-only SVG output.

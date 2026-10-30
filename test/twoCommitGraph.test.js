@@ -2,6 +2,27 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createCommitGraph2D } from "../twoCommitGraph.js";
 import { computeVisualizerLayoutJS } from "../layoutCalculator.js";
+import { computeTimeLayout } from "../graph2DLayout.js";
+
+test("TC-03-2D-TIME-001 time projection handles empty, coincident, and scaled coordinates", () => {
+  const empty = computeTimeLayout({ nodes3d: [] }, 30, 37, 400);
+  assert.deepEqual(empty.ticks, []);
+  assert.equal(empty.contentHeightPx, 400);
+  assert.ok(Number.isFinite(empty.toY(0)));
+  const payload = {
+    nodes3d: [0, 0, 1, 10].map((z, index) => ({ id: String(index), entityType: "FACT", z })),
+  };
+  const base = computeTimeLayout(payload, 30, 37);
+  assert.deepEqual(base.ticks.map((node) => node.z), [10, 1, 0]);
+  assert.equal((base.toY(0) - base.toY(1)) / (base.toY(0) - base.toY(10)), 0.1);
+  for (const scale of [0.5, 2]) {
+    const scaled = computeTimeLayout(payload, 30 * scale, 37);
+    assert.equal(scaled.toY(0) - scaled.toY(10), (base.toY(0) - base.toY(10)) * scale);
+  }
+  const coincident = computeTimeLayout({ nodes3d: payload.nodes3d.slice(0, 2) }, 30, 37);
+  assert.equal(coincident.ticks.length, 1);
+  assert.equal(coincident.toY(0), 52);
+});
 
 class Element {
   constructor(tagName) {

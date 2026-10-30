@@ -9,6 +9,26 @@ export const ROW_HEIGHT_PX = 30;
 export const TABLE_HEADER_HEIGHT_PX = 37;
 export const LANE_WIDTH_PX = 56;
 export const LANE_LEFT_MARGIN_PX = 21;
+export const TIME_AXIS_WIDTH_PX = 190;
+
+// SEQ-MD-03: project the backend's selected time scale without assigning FACT rows.
+export function computeTimeLayout(payload, rowHeightPx, headerHeightPx, viewportHeightPx = 0) {
+  const factsByZ = new Map();
+  payload.nodes3d.filter((node) => node.entityType === "FACT").forEach((node) => {
+    if (!factsByZ.has(node.z)) factsByZ.set(node.z, node);
+  });
+  const ticks = [...factsByZ.values()].sort((left, right) => right.z - left.z);
+  const maxZ = ticks[0]?.z ?? 0;
+  const minZ = ticks.at(-1)?.z ?? maxZ;
+  const spanPx = Math.max(8, ticks.length - 1) * rowHeightPx;
+  const toY = (z) => headerHeightPx + rowHeightPx / 2
+    + (maxZ === minZ ? 0 : (maxZ - z) / (maxZ - minZ) * spanPx);
+  return {
+    ticks,
+    toY,
+    contentHeightPx: Math.max(viewportHeightPx, headerHeightPx + spanPx + rowHeightPx),
+  };
+}
 
 export function graphWidthForLaneCount(laneCount) {
   return LANE_LEFT_MARGIN_PX + Math.max(1, laneCount) * LANE_WIDTH_PX + 10;

@@ -14,16 +14,19 @@ import {
   graphWidthForLaneCount,
   laneX,
   rowCenterY,
+  TIME_AXIS_WIDTH_PX,
+  computeTimeLayout,
 } from "./graph2DLayout.js";
 import { createLinkGeometryResolver, linkHighlightIds } from "./linkGeometry.js";
 
-// Git-Extensions-style 2D commit graph rendered as plain SVG — not Three.js. The pane never
-// scrolls natively (no scrollbar, no rubber-band momentum of its own): it is a fixed-size overlay
+// Git-Extensions-style 2D commit graph rendered as plain SVG — not Three.js. In SequentialIndex
+// the pane never scrolls natively: it is a fixed-size overlay
 // whose content is repositioned with a CSS transform driven by the same `scrollTop` value as the
 // HTML FACT table beside it. The FACT table is the sole natively-scrollable element, so there is
 // only ever one source of scroll physics and nothing left to fight over at the top/bottom edges.
 // Colors come from the exact same helpers as the 3D renderer, so FACT and EXPERIENCE colors are
-// identical between 2D and 3D modes. Native pointer events give real CSS `:hover` on nodes/branches.
+// identical between 2D and 3D modes. Linear/Logarithmic instead scroll natively along a time Y-axis.
+// Native pointer events give real CSS `:hover` on nodes/branches.
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 const FACT_RADIUS_PX = 7;
@@ -52,9 +55,11 @@ export function createCommitGraph2D(container, payload, theme, onSelect, onHover
   const { trunkColorByPositionKey, factColorByPositionKey } = buildExperienceColorMaps(payload, theme);
   const highlightColor = ensureReadableColor(theme.textColor, theme.textBackgroundColor);
   const borderColor = readThemeVar(container, "--theme-border", "rgba(128,128,128,0.4)");
+  const isTimeline = scrollSync?.timeScaleMode === "Linear" || scrollSync?.timeScaleMode === "Logarithmic";
+  if (isTimeline) container.style.overflowY = "auto";
 
   const laneIndexByKey = computeLaneIndexByKey(payload);
-  const laneXPx = (key) => laneX(laneIndexByKey, key) + LANE_LEFT_MARGIN_PX;
+  const laneXPx = (key) => laneX(laneIndexByKey, key) + LANE_LEFT_MARGIN_PX + (isTimeline ? TIME_AXIS_WIDTH_PX : 0);
   const experienceIdByPositionKey = new Map(payload.nodes3d
     .filter((node) => node.entityType === "EXPERIENCE")
     .map((node) => [positionKey(node.x, node.y), node.id]));
@@ -67,22 +72,22 @@ export function createCommitGraph2D(container, payload, theme, onSelect, onHover
   // Row grid shared with the HTML FACT table: newest fact at row 0 (top).
   const rowIndexById = computeFactRowIndexById(payload);
   const rowCount = rowIndexById.size || 1;
+  const timeLayout = isTimeline ? computeTimeLayout(payload, rowHeightPx, headerHeightPx, container.clientHeight) : null;
   const maxZ = Math.max(1, ...payload.nodes3d.map((node) => node.z));
   const factRowCenterY = (factId) => rowCenterY(rowIndexById.get(factId) ?? 0, rowHeightPx, headerHeightPx);
   const zFallbackY = (z) => headerHeightPx + (1 - z / maxZ) * rowCount * rowHeightPx;
-  // Branch endpoints are exact fact z values (firstFactZ/lastFactZ), so snapping z -> the fact's
-  // grid row keeps EXPERIENCE lanes and connectors exactly on their FACT dots at any time scale.
+  // SequentialIndex branch endpoints snap to the same grid as their FACT table rows.
   const rowYByZ = new Map();
   payload.nodes3d
     .filter((node) => node.entityType === "FACT")
     .forEach((node) => rowYByZ.set(node.z, factRowCenterY(node.id)));
   const toXY = (point) => ({
     x: laneXPx(positionKey(point[0], point[1])),
-    y: rowYByZ.get(point[2]) ?? zFallbackY(point[2]),
+    y: timeLayout ? timeLayout.toY(point[2]) : (rowYByZ.get(point[2]) ?? zFallbackY(point[2])),
   });
 
-  const graphWidthPx = graphWidthForLaneCount(laneIndexByKey.size);
-  const contentHeightPx = headerHeightPx + rowCount * rowHeightPx;
+  const graphWidthPx = graphWidthForLaneCount(laneIndexByKey.size) + (isTimeline ? TIME_AXIS_WIDTH_PX : 0);
+  const contentHeightPx = timeLayout?.contentHeightPx ?? (headerHeightPx + rowCount * rowHeightPx);
 
   // Scrollable content lives in a plain, non-scrolling wrapper moved by `transform: translateY`;
   // the sticky-look header is a separate overlay that never moves, so it needs no CSS `sticky`.
@@ -102,9 +107,40 @@ export function createCommitGraph2D(container, payload, theme, onSelect, onHover
     style: `display: block !important; overflow: visible !important; width: ${graphWidthPx}px !important; height: ${contentHeightPx}px !important; max-width: none !important; max-height: none !important;`,
   });
   contentWrapper.appendChild(svg);
+  if (timeLayout?.ticks.length) {
+    const axisX = TIME_AXIS_WIDTH_PX - 1;
+    svg.appendChild(svgEl("line", {
+      x1: axisX, x2: axisX,
+      y1: timeLayout.toY(timeLayout.ticks[0].z),
+      y2: timeLayout.toY(timeLayout.ticks.at(-1).z),
+      stroke: highlightColor, "stroke-width": 1,
+    }));
+    let lastLabelY = -Infinity;
+    timeLayout.ticks.forEach((node) => {
+      const y = timeLayout.toY(node.z);
+      svg.appendChild(svgEl("line", {
+        x1: axisX - 5, x2: axisX, y1: y, y2: y, stroke: highlightColor,
+      }));
+      // Dense dates retain their exact ticks; omit overlapping labels, not geometry.
+      if (y - lastLabelY < 22) return;
+      const label = svgEl("text", {
+        x: axisX - 9, y, fill: highlightColor,
+        "text-anchor": "end", "dominant-baseline": "middle", "font-size": 11,
+      });
+      label.textContent = factDatesById?.get(node.id) || String(node.z);
+      svg.appendChild(label);
+      lastLabelY = y;
+    });
+  }
 
   const header = document.createElement("div");
   header.style.cssText = `position: absolute; top: 0; left: 0; right: 0; z-index: 2; height: ${headerHeightPx}px; background: ${theme.textBackgroundColor}; border-bottom: 1px solid ${borderColor}; box-sizing: border-box;`;
+  if (isTimeline) {
+    const axisLabel = document.createElement("span");
+    axisLabel.textContent = `${scrollSync.timeLabel || "Time"} (${scrollSync.timeScaleMode})`;
+    axisLabel.style.cssText = `position: absolute; left: 8px; top: 50%; transform: translateY(-50%); color: ${highlightColor}; font-size: 0.78rem;`;
+    header.appendChild(axisLabel);
+  }
   payload.nodes3d
     .filter((node) => node.entityType === "EXPERIENCE")
     .forEach((node) => {
@@ -207,14 +243,14 @@ export function createCommitGraph2D(container, payload, theme, onSelect, onHover
     attachHover(element, () => linkNode);
   });
 
-  // FACT commit dots snapped to their table row; labels live in the HTML table beside this panel.
+  // FACT dots use either SequentialIndex rows or the selected time projection.
   payload.nodes3d
     .filter((node) => node.entityType === "FACT")
     .forEach((node) => {
       const key = positionKey(node.x, node.y);
       const color = factColorByPositionKey.get(key) || entityColors.FACT;
       const circle = svgEl("circle", {
-        cx: laneXPx(key), cy: factRowCenterY(node.id), r: FACT_RADIUS_PX,
+        cx: laneXPx(key), cy: timeLayout ? timeLayout.toY(node.z) : factRowCenterY(node.id), r: FACT_RADIUS_PX,
         fill: node.isDirectFact ? color : "none",
         stroke: color,
         "stroke-width": node.isDirectFact ? 0 : 2,
@@ -259,8 +295,7 @@ export function createCommitGraph2D(container, payload, theme, onSelect, onHover
     }));
   }
 
-  // The FACT table owns real scrolling; this pane only mirrors its scrollTop via transform, so
-  // scroll physics (momentum, rubber-banding) exist in exactly one place and can't fight themselves.
+  // SequentialIndex mirrors the table via transform; timeline modes own native graph scrolling.
   let scrollTop = initialViewState && Number.isFinite(initialViewState.scrollTop) ? initialViewState.scrollTop : 0;
   const updateLinkGeometry = () => {
     const bounds = container.getBoundingClientRect();
@@ -301,14 +336,25 @@ export function createCommitGraph2D(container, payload, theme, onSelect, onHover
     });
   };
   const applyTransform = () => {
-    contentWrapper.style.transform = `translateY(${-scrollTop}px)`;
+    if (isTimeline) header.style.top = `${scrollTop}px`;
+    else contentWrapper.style.transform = `translateY(${-scrollTop}px)`;
     updateLinkGeometry();
   };
   const setScrollTop = (nextScrollTop) => {
+    if (isTimeline) {
+      container.scrollTop = nextScrollTop;
+      scrollTop = container.scrollTop;
+      applyTransform();
+      return;
+    }
     scrollTop = nextScrollTop;
     applyTransform();
   };
-  applyTransform();
+  const handleScroll = () => {
+    scrollTop = container.scrollTop;
+    applyTransform();
+  };
+  setScrollTop(scrollTop);
 
   // Forward wheel input to the shared scroll state (the table applies + clamps it); this pane has
   // no native scroll of its own so the browser would otherwise just ignore the wheel here.
@@ -316,7 +362,8 @@ export function createCommitGraph2D(container, payload, theme, onSelect, onHover
     event.preventDefault();
     scrollSync?.onScroll(scrollTop + event.deltaY);
   };
-  container.addEventListener("wheel", handleWheel, { passive: false });
+  if (isTimeline) container.addEventListener("scroll", handleScroll);
+  else container.addEventListener("wheel", handleWheel, { passive: false });
   window.addEventListener("resize", updateLinkGeometry);
   window.addEventListener("scroll", updateLinkGeometry, true);
   const resizeObserver = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(updateLinkGeometry);
@@ -324,11 +371,13 @@ export function createCommitGraph2D(container, payload, theme, onSelect, onHover
 
   const disposeFn = () => {
     container.removeEventListener("wheel", handleWheel);
+    container.removeEventListener("scroll", handleScroll);
     window.removeEventListener("resize", updateLinkGeometry);
     window.removeEventListener("scroll", updateLinkGeometry, true);
     resizeObserver?.disconnect();
     container.textContent = "";
     container.style.overflow = "";
+    container.style.overflowY = "";
   };
   disposeFn.getViewState = () => ({ scrollTop });
   disposeFn.setScrollTop = setScrollTop;
