@@ -56,15 +56,23 @@ test("SVG renders dashed LINKs, follows scrolling, and highlights LINKs from hol
         { id: "ff", relatedIds: ["f0", "f1"] },
         { id: "ef", relatedIds: ["f0", "other"] },
         { id: "ee", relatedIds: ["parent", "other"] },
+        { id: "multi", relatedIds: ["f14", "f15", "child", "other"] },
       ],
     }, { timeScaleMode: "SequentialIndex" });
     const container = new Element("div");
     const theme = { mainColor: "#3377aa", textColor: "#eeeeee", textBackgroundColor: "#111111" };
     let hovered;
-    dispose = createCommitGraph2D(container, payload, theme, () => {}, (node) => { hovered = node; });
+    let selected;
+    dispose = createCommitGraph2D(container, payload, theme, (node) => { selected = node; }, (node) => { hovered = node; });
     const elements = container.descendants();
     const links = elements.filter((element) => element.getAttribute("stroke-dasharray"));
-    assert.equal(links.length, 3);
+    assert.equal(links.length, 9);
+    assert.ok(links.slice(3).every((element) => element.style.display !== "none" && element.getAttribute("d")));
+    links.slice(3).forEach((element) => {
+      element.listeners.get("click")();
+      assert.equal(selected.entityType, "LINK");
+      assert.equal(selected.id, "multi");
+    });
     assert.ok(links.every((element) => element.getAttribute("fill") === "none"
       && !element.getAttribute("d").includes("Z")));
     const before = links[2].getAttribute("d");
@@ -86,7 +94,7 @@ test("SVG renders dashed LINKs, follows scrolling, and highlights LINKs from hol
     assert.equal(hovered.id, "f0");
     assert.equal(hovered.isDirectFact, false);
     assert.deepEqual(links.map((element) => element.getAttribute("opacity")), directOpacities);
-    assert.deepEqual(directOpacities, ["1", "1", "0.7"]);
+    assert.deepEqual(directOpacities, ["1", "1", "0.7", ...Array(6).fill("0.7")]);
     reflected.listeners.get("pointerleave")({});
     assert.equal(hovered, null);
     assert.equal(reflected.getAttribute("fill"), "none");

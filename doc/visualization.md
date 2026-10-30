@@ -28,9 +28,14 @@ equally spaced, newest-first FACT rows; Z scale changes the row height.
 
 ## LINK endpoints
 
-Every unordered pair in a LINK's `related_ids` / `relatedIds` is rendered
-independently. The first entry in that pair is the source and the second is the
-target. Endpoint order is stable, including for EXPERIENCE–EXPERIENCE pairs.
+Every unordered pair of distinct renderable FACT/EXPERIENCE IDs in a LINK's
+`related_ids` / `relatedIds` is rendered independently. Duplicate IDs are
+collapsed in first-appearance order. PERSON, missing IDs, and EXPERIENCEs
+without timelines are excluded without discarding other valid pairs.
+Four eligible endpoints therefore produce six segments. Each segment keeps
+the original LINK ID so selection opens the same ticket from any segment.
+The first entry in each pair is the source and the second is the target.
+Endpoint order is stable, including for EXPERIENCE–EXPERIENCE pairs.
 
 “Nearest” means minimum distance **on the displayed screen**, measured in
 pixels, not distance in the unprojected 3D model.

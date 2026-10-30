@@ -1,6 +1,8 @@
 // Client-side 3D visualizer layout calculator, kept in parity with the Rust
 // `calculate_layout` implementation in src-tauri/src/hasm/visualizer_commands.rs.
 // Used wherever a Tauri backend isn't available (e.g. a plain web build).
+import { experienceIdOf, factIdOf, linkIdOf, personIdOf } from "./modelScope.js";
+
 export function computeVisualizerLayoutJS(model, filter) {
   const timeScaleMode = filter?.timeScaleMode || "Linear";
   const zScaleFactor = Number(filter?.zScaleFactor || 1.0);
@@ -13,7 +15,7 @@ export function computeVisualizerLayoutJS(model, filter) {
   const experiences = model?.experiences || [];
   const branchPositions = calculateBranchPositions(experiences);
   experiences.forEach((experience) => {
-    const id = String(experience.experience_id || experience.id);
+    const id = experienceIdOf(experience);
     const [x, y] = branchPositions.get(id) || [0.0, 0.0];
     nodes.push({
       id,
@@ -31,8 +33,8 @@ export function computeVisualizerLayoutJS(model, filter) {
     const timeB = right.occurred_at || right.occurredAt || "";
     if (timeA < timeB) return -1;
     if (timeA > timeB) return 1;
-    const idA = String(left.fact_id || left.id || "");
-    const idB = String(right.fact_id || right.id || "");
+    const idA = factIdOf(left);
+    const idB = factIdOf(right);
     return idA.localeCompare(idB);
   });
 
@@ -53,7 +55,7 @@ export function computeVisualizerLayoutJS(model, filter) {
         experienceFactZs.set(branchId, [...(experienceFactZs.get(branchId) || []), z]);
       }
       nodes.push({
-        id: String(fact.fact_id || fact.id),
+        id: factIdOf(fact),
         entityType: "FACT",
         label: fact.fact_name || fact.name || "Fact",
         x,
@@ -68,7 +70,7 @@ export function computeVisualizerLayoutJS(model, filter) {
   });
 
   experiences.forEach((experience) => {
-    const expId = String(experience.experience_id || experience.id);
+    const expId = experienceIdOf(experience);
     const [x, y] = branchPositions.has(expId) ? branchPositions.get(expId) : [0.0, 0.0];
     const factZs = experienceFactZs.get(expId) || [];
     const firstFactZ = factZs.length > 0 ? Math.min(...factZs) : 0.0;
@@ -109,7 +111,7 @@ export function computeVisualizerLayoutJS(model, filter) {
   const people = model?.people || [];
   people.forEach((person, index) => {
     nodes.push({
-      id: String(person.person_id || person.id),
+      id: personIdOf(person),
       entityType: "PERSON",
       label: person.person_name || person.name || "Person",
       x: -5.0,
@@ -124,8 +126,8 @@ export function computeVisualizerLayoutJS(model, filter) {
 
   const links = model?.links || [];
   links.forEach((link) => {
-    const linkId = String(link.link_id || link.id);
-    const relatedIds = (link.related_ids || link.relatedIds || []).map(String);
+    const linkId = linkIdOf(link);
+    const relatedIds = [...new Set((link.related_ids || link.relatedIds || []).map(String))];
     // A LINK is only drawn between endpoints that actually resolved to a rendered node (i.e. both
     // ends survived scoping/filtering); every unordered pair among related_ids gets its own line.
     for (let i = 0; i < relatedIds.length; i += 1) {
@@ -137,9 +139,10 @@ export function computeVisualizerLayoutJS(model, filter) {
         // geometry), so a LINK touching one renders as a stray, meaningless line/membrane -
         // PERSON-related LINKs are no longer visualized at all.
         if (fromNode.entityType === "PERSON" || toNode.entityType === "PERSON") continue;
+        if ([fromNode, toNode].some((node) => node.entityType === "EXPERIENCE" && !experienceFactZs.has(node.id))) continue;
         const isFactFact = fromNode.entityType === "FACT" && toNode.entityType === "FACT";
         lines.push({
-          id: `link-${linkId}-${relatedIds[i]}-${relatedIds[j]}`,
+          id: linkId,
           lineType: "LINK",
           linkCategory: isFactFact ? "FACT_FACT" : "EXPERIENCE",
           linkShape: "LINE",
@@ -179,19 +182,19 @@ function calculateBranchPositions(experiences) {
   const depths = new Map();
 
   experiences.forEach((experience) => {
-    experienceDepth(String(experience.experience_id || experience.id), experiences, depths, new Set());
+    experienceDepth(experienceIdOf(experience), experiences, depths, new Set());
   });
 
   const orderedExperiences = [...experiences].sort((left, right) => {
-    const leftId = String(left.experience_id || left.id);
-    const rightId = String(right.experience_id || right.id);
+    const leftId = experienceIdOf(left);
+    const rightId = experienceIdOf(right);
     return (depths.get(leftId) || 0) - (depths.get(rightId) || 0);
   });
   const positions = new Map();
   const lanesByDepth = new Map();
 
   orderedExperiences.forEach((experience) => {
-    const id = String(experience.experience_id || experience.id);
+    const id = experienceIdOf(experience);
     const depth = depths.get(id) || 0;
     const parents = experience.parent_experience_ids || experience.parentExperienceIds || [];
     const parentLanes = parents
@@ -205,7 +208,7 @@ function calculateBranchPositions(experiences) {
       const candidateParents = candidate.parent_experience_ids || candidate.parentExperienceIds || [];
       return candidateParents.some((parentId) => parents.map(String).includes(String(parentId)));
     });
-    const siblingIndex = Math.max(0, siblingExperiences.findIndex((candidate) => String(candidate.experience_id || candidate.id) === id));
+    const siblingIndex = Math.max(0, siblingExperiences.findIndex((candidate) => experienceIdOf(candidate) === id));
     const desiredY = parentCenter + (siblingIndex - (Math.max(0, siblingExperiences.length - 1) / 2.0)) * siblingGap;
     const occupiedLanes = lanesByDepth.get(depth) || [];
     const y = nearestAvailableLane(desiredY, occupiedLanes, siblingGap);
@@ -220,7 +223,7 @@ function experienceDepth(experienceId, experiences, depths, visiting) {
   if (depths.has(experienceId)) return depths.get(experienceId);
   if (visiting.has(experienceId)) return 0;
   visiting.add(experienceId);
-  const experience = experiences.find((candidate) => String(candidate.experience_id || candidate.id) === experienceId);
+  const experience = experiences.find((candidate) => experienceIdOf(candidate) === experienceId);
   const parents = experience?.parent_experience_ids || experience?.parentExperienceIds || [];
   const depth = experience
     ? parents.reduce((maximum, parentId) => Math.max(maximum, experienceDepth(String(parentId), experiences, depths, visiting) + 1), 0)
@@ -233,7 +236,7 @@ function experienceDepth(experienceId, experiences, depths, visiting) {
 function collectExperienceAndAncestors(experienceId, experiences, collected) {
   if (collected.has(experienceId)) return;
   collected.add(experienceId);
-  const experience = experiences.find((candidate) => String(candidate.experience_id || candidate.id) === experienceId);
+  const experience = experiences.find((candidate) => experienceIdOf(candidate) === experienceId);
   const parents = experience?.parent_experience_ids || experience?.parentExperienceIds || [];
   parents.forEach((parentId) => collectExperienceAndAncestors(String(parentId), experiences, collected));
 }

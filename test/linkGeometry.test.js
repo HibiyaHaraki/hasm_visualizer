@@ -160,3 +160,33 @@ test("layout outputs dashed-line metadata for every supported pair, including br
   const ids = new Set(trimmed.nodes3d.map((item) => item.id));
   assert.ok(trimmed.lines3d.filter((line) => line.lineType === "LINK").every((line) => ids.has(line.fromId) && ids.has(line.toId)));
 });
+
+test("TC-03-LINK-MULTI-JS: camelCase multi-entity LINKs emit all six pairs and retain ticket identity", () => {
+  const payload = computeVisualizerLayoutJS({
+    people: [{ personId: "p" }],
+    experiences: [
+      { experienceId: "e1" },
+      { experienceId: "e2", parentExperienceIds: ["e1"] },
+      { experienceId: "empty" },
+    ],
+    facts: [
+      { factId: "f1", experienceIds: ["e2"], occurredAt: "2020-01-01" },
+      { factId: "f2", experienceIds: ["e1"], occurredAt: "2020-01-02" },
+    ],
+    links: [
+      { linkId: "multi", relatedIds: ["p", "f1", "f2", "e1", "e2", "f1", "missing", "empty"] },
+      { linkId: "person-only", relatedIds: ["p"] },
+      { linkId: "person-fact", relatedIds: ["p", "f1"] },
+    ],
+  }, {});
+  const links = payload.lines3d.filter((line) => line.lineType === "LINK");
+  assert.equal(links.length, 6);
+  assert.deepEqual(links.map((line) => [line.fromId, line.toId]), [
+    ["f1", "f2"], ["f1", "e1"], ["f1", "e2"],
+    ["f2", "e1"], ["f2", "e2"], ["e1", "e2"],
+  ]);
+  assert.ok(links.every((line) => line.id === "multi"));
+  const resolve = createLinkGeometryResolver(payload);
+  const wideViewport = { width: 800, height: 600, project: ([x, y, z]) => [x / 20, y / 20, z / 20, 1] };
+  assert.ok(links.every((line) => resolve(line, wideViewport)));
+});
