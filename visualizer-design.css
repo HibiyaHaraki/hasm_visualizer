@@ -1,10 +1,21 @@
 /* Self-contained 3D visualizer styling. Base rules mirror src/seq01.css; adapter rules below support
    the standalone HasmVisualizerComponent (legend/inspector) used outside the Tauri app shell. */
-.visualizer-page { min-height: 100vh; display: grid; grid-template-rows: auto minmax(0, 1fr); padding: 18px; gap: 14px; }
-.visualizer-toolbar { display: flex; align-items: end; gap: 18px; flex-wrap: wrap; padding: 14px 18px; border: 1px solid var(--theme-border); background: var(--theme-soft); }
+.visualizer-page { min-height: 100vh; display: flex; flex-direction: column; min-width: 0; padding: 18px; gap: 14px; }
+.visualizer-toolbar { position: relative; z-index: 4; display: flex; align-items: end; gap: 12px 20px; flex-wrap: wrap; padding: 12px 16px; border: 1px solid var(--theme-border); background: var(--theme-soft); }
 .visualizer-toolbar h1 { margin: 0; font-size: 1.4rem; }
 .visualizer-toolbar label { margin: 0; display: grid; gap: 5px; font-size: 0.82rem; }
 .visualizer-toolbar select, .visualizer-toolbar input { color: var(--theme-input-text); background: var(--theme-input-bg); border: 1px solid var(--theme-border); padding: 6px; }
+.HasmVisualizer_Toolbar .HasmVisualizer_ControlGroup { display: grid; gap: 5px; min-width: 0; }
+.HasmVisualizer_Toolbar .HasmVisualizer_Label { color: var(--theme-muted); font-size: 0.72rem; font-weight: 600; letter-spacing: 0.04em; }
+.HasmVisualizer_Toolbar .HasmVisualizer_Select { width: 100%; min-width: 0; border-radius: 0; font-size: 0.82rem; }
+.HasmVisualizer_SampleGroup { flex: 0 1 260px; }
+.HasmVisualizer_TimeGroup { flex: 0 1 155px; }
+.HasmVisualizer_ScaleGroup { flex: 0 1 150px; }
+.HasmVisualizer_ScaleControl { display: flex; align-items: center; gap: 8px; min-height: 32px; }
+.HasmVisualizer_ScaleControl .HasmVisualizer_Input { width: 100%; min-width: 0; padding: 0; border: 0; accent-color: var(--theme-text); }
+.HasmVisualizer_ScaleValue { min-width: 3ch; font-size: 0.8rem; font-variant-numeric: tabular-nums; color: var(--theme-text); }
+.HasmVisualizer_ToolbarActions { margin-left: auto; display: flex; flex-wrap: wrap; gap: 8px; max-width: 100%; }
+.HasmVisualizer_ToolbarActions > * { max-width: 100%; white-space: normal; }
 
 /* Bootstrap utility classNames (form-select/form-range/btn/btn-outline-secondary) are applied
    alongside the HasmVisualizer_* classes below so controls match a Bootstrap host's look. This
@@ -28,7 +39,7 @@
   border-color: var(--theme-primary);
 }
 
-.graph-stage { position: relative; min-height: 520px; overflow: hidden; border: 1px solid var(--theme-border); background: var(--theme-textbackground); }
+.graph-stage { position: relative; flex: 1 0 auto; height: max(320px, calc(100dvh - 250px)); min-height: 320px; overflow: hidden; border: 1px solid var(--theme-border); background: var(--theme-textbackground); }
 .graph-canvas, .graph-stage canvas { position: absolute; inset: 0; display: block; width: 100%; height: 100%; touch-action: none; }
 .graph-progress, .graph-warning, .graph-notice { position: absolute; z-index: 2; margin: 14px; padding: 10px; border: 1px solid var(--theme-border); background: var(--theme-soft); }
 .graph-progress { inset: auto 0 0 0; margin: 0; border-width: 1px 0 0; }
@@ -71,7 +82,7 @@
 .HasmVisualizer_Container .HasmVisualizer_ViewToggle {
   display: inline-flex;
   border: 1px solid var(--theme-border);
-  border-radius: 4px;
+  border-radius: 0;
   overflow: hidden;
 }
 .HasmVisualizer_Container .HasmVisualizer_ViewToggleButton {
@@ -87,9 +98,42 @@
   border-left: 1px solid var(--theme-border);
 }
 .HasmVisualizer_Container .HasmVisualizer_ViewToggleButton.is-active {
-  background: var(--theme-primary);
+  background: var(--theme-text);
   color: var(--theme-textbackground);
 }
+.HasmVisualizer_Container .HasmVisualizer_ViewToggleButton:hover:not(:disabled) {
+  color: var(--theme-text);
+  background: var(--theme-soft);
+  outline: 1px solid var(--theme-border);
+  outline-offset: -1px;
+}
+.HasmVisualizer_Container .HasmVisualizer_ViewToggleButton:focus-visible,
+.HasmVisualizer_Container .HasmVisualizer_Select:focus-visible,
+.HasmVisualizer_Container .HasmVisualizer_Input:focus-visible {
+  outline: 2px solid var(--theme-text);
+  outline-offset: 2px;
+  box-shadow: none;
+}
+.HasmVisualizer_Container .HasmVisualizer_ViewToggleButton:disabled { opacity: 0.5; cursor: default; }
+.HasmVisualizer_Container .HasmVisualizer_ScopeTrigger { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 12px; min-height: 32px; padding: 6px 10px; border: 1px solid var(--theme-border); }
+.HasmVisualizer_ScopeCount { min-width: 0; overflow-wrap: anywhere; font-weight: normal; font-size: 0.75rem; }
+.HasmVisualizer_ScopePanel {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  width: min(520px, 100%);
+  max-height: min(65dvh, 480px);
+  overflow: auto;
+  padding: 16px;
+  color: var(--theme-text);
+  background: var(--theme-soft);
+  border: 1px solid var(--theme-border);
+  box-shadow: 0 8px 20px color-mix(in srgb, var(--theme-text) 12%, transparent);
+}
+.HasmVisualizer_ScopePanel[hidden] { display: none; }
+.HasmVisualizer_PanelHeader { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
+.HasmVisualizer_PanelHeader h2 { margin: 0; font-family: Georgia, serif; font-size: 1rem; letter-spacing: 0.03em; }
+.HasmVisualizer_ScopeFooter { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--theme-border); }
 
 /* Keep the FACT table immediately after the last lane; scroll horizontally rather than clip lanes. */
 .HasmVisualizer_Container .HasmVisualizer_Split2D {
@@ -189,19 +233,20 @@
 
 /* PERSON / EXPERIENCE scope selection */
 .HasmVisualizer_Container .HasmVisualizer_ScopeGroup {
-  display: flex;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(180px, 100%), 1fr));
   align-items: start;
   gap: 16px;
-  flex-wrap: wrap;
 }
 .HasmVisualizer_Container .HasmVisualizer_ScopeField {
   display: grid;
+  min-width: 0;
   gap: 5px;
   align-content: start;
 }
 .HasmVisualizer_Container .HasmVisualizer_ScopeSelect {
-  min-width: 160px;
-  max-width: 240px;
+  width: 100%;
+  min-width: 0;
   font-size: 0.82rem;
 }
 .HasmVisualizer_Container .HasmVisualizer_ScopeSelect option {
@@ -216,14 +261,7 @@
   display: flex;
   gap: 6px;
 }
-.HasmVisualizer_Container .HasmVisualizer_ScopeSummary {
-  color: var(--theme-muted);
-  font-size: 0.78rem;
-  letter-spacing: 0.03em;
-  white-space: nowrap;
-}
 .HasmVisualizer_Container .HasmVisualizer_ScopeHint {
-  max-width: 22ch;
   color: var(--theme-muted);
   font-size: 0.72rem;
   letter-spacing: 0.03em;
@@ -247,4 +285,19 @@
 .HasmVisualizer_Container .HasmVisualizer_BudgetWarning {
   inset: auto 0 0 auto;
   max-width: 46ch;
+}
+
+@media (max-width: 600px) {
+  .visualizer-page { padding: 10px; gap: 10px; }
+  .visualizer-toolbar { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); padding: 10px; gap: 10px 12px; }
+  .HasmVisualizer_Toolbar .HasmVisualizer_ScopeMenu,
+  .HasmVisualizer_Toolbar .HasmVisualizer_SampleGroup { grid-column: 1 / -1; }
+  .HasmVisualizer_Toolbar .HasmVisualizer_ViewToggle { width: fit-content; }
+  .HasmVisualizer_ToolbarActions { margin-left: 0; min-width: 0; }
+  .HasmVisualizer_ToolbarActions > * { font-size: 0.82rem; padding: 6px 10px; }
+  .HasmVisualizer_ScopePanel { position: fixed; top: 72px; right: 12px; bottom: 12px; left: auto; width: min(440px, calc(100% - 24px)); max-height: none; }
+}
+
+@media (max-height: 600px) {
+  .HasmVisualizer_ScopePanel { position: fixed; top: 72px; right: 12px; bottom: 12px; left: auto; width: min(520px, calc(100% - 24px)); max-height: none; }
 }

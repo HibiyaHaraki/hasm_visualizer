@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { createCommitGraph, buildEntityColors, buildExperienceColorMaps, positionKey, limitRenderedNodes, DEFAULT_MAX_RENDERED_NODES } from './threeCommitGraph.js';
 import { createCommitGraph2D } from './twoCommitGraph.js';
 import { computeFactRowIndexById, computeLaneIndexByKey, graphWidthForLaneCount, ROW_HEIGHT_PX, TABLE_HEADER_HEIGHT_PX } from './graph2DLayout.js';
@@ -106,6 +106,10 @@ export function HasmVisualizerComponent({
   const [selectedModelIndex, setSelectedModelIndex] = useState(0);
   const [filter, setFilter] = useState(DEFAULT_LAYOUT_FILTER);
   const [scope, setScope] = useState(EMPTY_SCOPE);
+  const [scopeOpen, setScopeOpen] = useState(false);
+  const scopeMenuRef = useRef(null);
+  const scopeButtonRef = useRef(null);
+  const scopePanelId = useId();
   const [viewMode, setViewMode] = useState('2d');
   const [hoveredNode, setHoveredNode] = useState(null);
   const [selectedNode, setSelectedNode] = useState(null);
@@ -113,6 +117,25 @@ export function HasmVisualizerComponent({
   const [renderError, setRenderError] = useState('');
   const rendererFallbackMessage = labels?.rendererFallback || '3D rendering is unavailable; switched to 2D.';
   const renderingFailedMessage = labels?.renderingFailed || 'The 2D graph could not be rendered.';
+
+  useEffect(() => {
+    if (!scopeOpen) return undefined;
+    const dismissOutside = (event) => {
+      if (!scopeMenuRef.current?.contains(event.target)) setScopeOpen(false);
+    };
+    const dismissOnEscape = (event) => {
+      if (event.key !== 'Escape') return;
+      event.preventDefault();
+      setScopeOpen(false);
+      scopeButtonRef.current?.focus();
+    };
+    document.addEventListener('pointerdown', dismissOutside);
+    document.addEventListener('keydown', dismissOnEscape);
+    return () => {
+      document.removeEventListener('pointerdown', dismissOutside);
+      document.removeEventListener('keydown', dismissOnEscape);
+    };
+  }, [scopeOpen]);
 
   const currentSample = SAMPLE_HASM_MODELS[selectedModelIndex] || SAMPLE_HASM_MODELS[0];
   const activeModel = model || currentSample.model;
@@ -396,10 +419,9 @@ export function HasmVisualizerComponent({
 
       {headerSlot}
 
-      {/* TOOLBAR CONTROLS */}
-      <div className="visualizer-toolbar HasmVisualizer_Toolbar">
+      <div className="visualizer-toolbar HasmVisualizer_Toolbar" role="region" aria-label={labels?.graphControls || 'Graph controls'}>
         {showSampleSelector && (
-          <div className="HasmVisualizer_ControlGroup">
+          <div className="HasmVisualizer_ControlGroup HasmVisualizer_SampleGroup">
             <label className="HasmVisualizer_Label" htmlFor="hasm-visualizer-sample">
               {labels?.sampleModel || 'Example .hasm Package'}
             </label>
@@ -423,98 +445,115 @@ export function HasmVisualizerComponent({
           </div>
         )}
 
-        {/* SCOPE SELECTION: limits how much of a large package is laid out and rendered.
-            Both controls accept any number of entries; a plain click toggles one entry. */}
-        <div className="HasmVisualizer_ControlGroup HasmVisualizer_ScopeGroup">
-          {personOptions.length > 1 && (
-            <div className="HasmVisualizer_ScopeField">
-              <label className="HasmVisualizer_Label" htmlFor="hasm-visualizer-person-scope">
-                {labels?.personScope || 'PERSON scope'}
-              </label>
-              <select
-                id="hasm-visualizer-person-scope"
-                className="HasmVisualizer_Select HasmVisualizer_ScopeSelect form-select form-select-sm"
-                multiple
-                size={Math.min(Math.max(personOptions.length, 2), 8)}
-                value={scope.personIds}
-                onMouseDown={(event) => toggleOptionOnPlainClick(event, applyPersonIds)}
-                onChange={(event) => applyPersonIds(selectedValues(event.currentTarget))}
-              >
-                {personOptions.map((option) => (
-                  <option key={option.id} value={option.id}>{option.label}</option>
-                ))}
-              </select>
-              <div className="HasmVisualizer_ScopeActions">
-                <button
-                  type="button"
-                  className="HasmVisualizer_ViewToggleButton btn btn-sm btn-outline-secondary"
-                  onClick={() => applyPersonIds(personOptions.map((option) => option.id))}
-                  disabled={personOptions.length === 0 || scope.personIds.length === personOptions.length}
+        <div className="HasmVisualizer_ControlGroup HasmVisualizer_ScopeMenu" ref={scopeMenuRef}>
+          <span className="HasmVisualizer_Label">{labels?.scope || 'Scope'}</span>
+          <button type="button" ref={scopeButtonRef}
+            className="HasmVisualizer_ScopeTrigger HasmVisualizer_ViewToggleButton btn btn-sm btn-outline-secondary"
+            aria-expanded={scopeOpen} aria-controls={scopePanelId}
+            aria-label={`${labels?.scope || 'Scope'}: ${scopeSummary}`}
+            onClick={() => setScopeOpen((open) => !open)}>
+            <span>{isEmptyScope(scope) ? (labels?.allEntities || 'All entities') : `${scope.personIds.length + scope.experienceIds.length} ${labels?.selected || 'selected'}`}</span>
+            <span className="HasmVisualizer_ScopeCount" role="status">{scopeSummary}</span>
+            <span aria-hidden="true">{scopeOpen ? '\u2212' : '+'}</span>
+          </button>
+          <div id={scopePanelId} className="HasmVisualizer_ScopePanel" hidden={!scopeOpen}
+            role="region" aria-label={labels?.scopeSelection || 'Scope selection'}>
+            <div className="HasmVisualizer_PanelHeader">
+              <h2>{labels?.scopeSelection || 'Scope selection'}</h2>
+              <button type="button" className="HasmVisualizer_ViewToggleButton btn btn-sm btn-outline-secondary"
+                onClick={() => { setScopeOpen(false); scopeButtonRef.current?.focus(); }}>
+                {labels?.done || 'Done'}
+              </button>
+            </div>
+            <p className="HasmVisualizer_ScopeHint">
+              {labels?.scopeHint || 'Click to toggle. Select any number of entries.'}
+            </p>
+            <div className="HasmVisualizer_ScopeGroup">
+              {personOptions.length > 1 && (
+                <div className="HasmVisualizer_ScopeField">
+                  <label className="HasmVisualizer_Label" htmlFor="hasm-visualizer-person-scope">
+                    {labels?.personScope || 'PERSON scope'}
+                  </label>
+                  <select
+                    id="hasm-visualizer-person-scope"
+                    className="HasmVisualizer_Select HasmVisualizer_ScopeSelect form-select form-select-sm"
+                    multiple
+                    size={Math.min(Math.max(personOptions.length, 2), 8)}
+                    value={scope.personIds}
+                    onMouseDown={(event) => toggleOptionOnPlainClick(event, applyPersonIds)}
+                    onChange={(event) => applyPersonIds(selectedValues(event.currentTarget))}
+                  >
+                    {personOptions.map((option) => (
+                      <option key={option.id} value={option.id}>{option.label}</option>
+                    ))}
+                  </select>
+                  <div className="HasmVisualizer_ScopeActions">
+                    <button
+                      type="button"
+                      className="HasmVisualizer_ViewToggleButton btn btn-sm btn-outline-secondary"
+                      onClick={() => applyPersonIds(personOptions.map((option) => option.id))}
+                      disabled={personOptions.length === 0 || scope.personIds.length === personOptions.length}
+                    >
+                      {labels?.selectAll || 'All'}
+                    </button>
+                    <button
+                      type="button"
+                      className="HasmVisualizer_ViewToggleButton btn btn-sm btn-outline-secondary"
+                      onClick={() => applyPersonIds([])}
+                      disabled={scope.personIds.length === 0}
+                    >
+                      {labels?.selectNone || 'None'}
+                    </button>
+                  </div>
+                </div>
+              )}
+              <div className="HasmVisualizer_ScopeField">
+                <label className="HasmVisualizer_Label" htmlFor="hasm-visualizer-experience-scope">
+                  {labels?.experienceScope || 'EXPERIENCE scope'}
+                </label>
+                <select
+                  id="hasm-visualizer-experience-scope"
+                  className="HasmVisualizer_Select HasmVisualizer_ScopeSelect form-select form-select-sm"
+                  multiple
+                  size={Math.min(Math.max(experienceOptions.length, 2), 8)}
+                  value={scope.experienceIds}
+                  onMouseDown={(event) => toggleOptionOnPlainClick(event, applyExperienceIds)}
+                  onChange={(event) => applyExperienceIds(selectedValues(event.currentTarget))}
                 >
-                  {labels?.selectAll || 'All'}
-                </button>
-                <button
-                  type="button"
-                  className="HasmVisualizer_ViewToggleButton btn btn-sm btn-outline-secondary"
-                  onClick={() => applyPersonIds([])}
-                  disabled={scope.personIds.length === 0}
-                >
-                  {labels?.selectNone || 'None'}
-                </button>
+                  {experienceOptions.map((option) => (
+                    <option key={option.id} value={option.id}>{option.label}</option>
+                  ))}
+                </select>
+                <div className="HasmVisualizer_ScopeActions">
+                  <button
+                    type="button"
+                    className="HasmVisualizer_ViewToggleButton btn btn-sm btn-outline-secondary"
+                    onClick={() => applyExperienceIds(experienceOptions.map((option) => option.id))}
+                    disabled={experienceOptions.length === 0 || scope.experienceIds.length === experienceOptions.length}
+                  >
+                    {labels?.selectAll || 'All'}
+                  </button>
+                  <button
+                    type="button"
+                    className="HasmVisualizer_ViewToggleButton btn btn-sm btn-outline-secondary"
+                    onClick={() => applyExperienceIds([])}
+                    disabled={scope.experienceIds.length === 0}
+                  >
+                    {labels?.selectNone || 'None'}
+                  </button>
+                </div>
               </div>
             </div>
-          )}
-
-          <div className="HasmVisualizer_ScopeField">
-            <label className="HasmVisualizer_Label" htmlFor="hasm-visualizer-experience-scope">
-              {labels?.experienceScope || 'EXPERIENCE scope'}
-            </label>
-            <select
-              id="hasm-visualizer-experience-scope"
-              className="HasmVisualizer_Select HasmVisualizer_ScopeSelect form-select form-select-sm"
-              multiple
-              size={Math.min(Math.max(experienceOptions.length, 2), 8)}
-              value={scope.experienceIds}
-              onMouseDown={(event) => toggleOptionOnPlainClick(event, applyExperienceIds)}
-              onChange={(event) => applyExperienceIds(selectedValues(event.currentTarget))}
-            >
-              {experienceOptions.map((option) => (
-                <option key={option.id} value={option.id}>{option.label}</option>
-              ))}
-            </select>
-            <div className="HasmVisualizer_ScopeActions">
+            <div className="HasmVisualizer_ScopeFooter">
               <button
                 type="button"
                 className="HasmVisualizer_ViewToggleButton btn btn-sm btn-outline-secondary"
-                onClick={() => applyExperienceIds(experienceOptions.map((option) => option.id))}
-                disabled={experienceOptions.length === 0 || scope.experienceIds.length === experienceOptions.length}
+                onClick={() => { setScope(EMPTY_SCOPE); setSelectedNode(null); }}
+                disabled={isEmptyScope(scope)}
               >
-                {labels?.selectAll || 'All'}
-              </button>
-              <button
-                type="button"
-                className="HasmVisualizer_ViewToggleButton btn btn-sm btn-outline-secondary"
-                onClick={() => applyExperienceIds([])}
-                disabled={scope.experienceIds.length === 0}
-              >
-                {labels?.selectNone || 'None'}
+                {labels?.clearScope || 'Clear scope'}
               </button>
             </div>
-          </div>
-
-          <div className="HasmVisualizer_ScopeField">
-            <button
-              type="button"
-              className="HasmVisualizer_ViewToggleButton btn btn-sm btn-outline-secondary"
-              onClick={() => { setScope(EMPTY_SCOPE); setSelectedNode(null); }}
-              disabled={isEmptyScope(scope)}
-            >
-              {labels?.clearScope || 'Clear scope'}
-            </button>
-            <span className="HasmVisualizer_ScopeSummary" role="status">{scopeSummary}</span>
-            <span className="HasmVisualizer_ScopeHint">
-              {labels?.scopeHint || 'Click to toggle. Select any number of entries.'}
-            </span>
           </div>
         </div>
 
@@ -526,6 +565,7 @@ export function HasmVisualizerComponent({
             <button
               type="button"
               className={`HasmVisualizer_ViewToggleButton btn btn-sm btn-outline-secondary${viewMode === '2d' ? ' is-active active' : ''}`}
+              aria-pressed={viewMode === '2d'}
               onClick={() => { setRenderError(''); setViewMode('2d'); }}
             >
               2D
@@ -533,6 +573,7 @@ export function HasmVisualizerComponent({
             <button
               type="button"
               className={`HasmVisualizer_ViewToggleButton btn btn-sm btn-outline-secondary${viewMode === '3d' ? ' is-active active' : ''}`}
+              aria-pressed={viewMode === '3d'}
               onClick={() => { setRenderError(''); setViewMode('3d'); }}
             >
               3D
@@ -540,7 +581,7 @@ export function HasmVisualizerComponent({
           </div>
         </div>
 
-        <div className="HasmVisualizer_ControlGroup">
+        <div className="HasmVisualizer_ControlGroup HasmVisualizer_TimeGroup">
           <label className="HasmVisualizer_Label" htmlFor="hasm-visualizer-time-scale">
             {labels?.timeScale || 'Time Scale'}
           </label>
@@ -556,24 +597,27 @@ export function HasmVisualizerComponent({
               </option>
             ))}
           </select>
-
+        </div>
+        <div className="HasmVisualizer_ControlGroup HasmVisualizer_ScaleGroup">
           <label className="HasmVisualizer_Label" htmlFor="hasm-visualizer-z-scale">
             {labels?.zScale || 'Z Scale'}
           </label>
-          <input
-            id="hasm-visualizer-z-scale"
-            type="range"
-            min="0.5"
-            max="2.0"
-            step="0.1"
-            className="HasmVisualizer_Input form-range"
-            value={filter.zScaleFactor}
-            onChange={(e) => setFilter(nextLayoutFilter(filter, 'zScaleFactor', e.target.value))}
-          />
-          <span style={{ fontSize: '0.8rem', minWidth: '32px' }}>{filter.zScaleFactor}x</span>
+          <div className="HasmVisualizer_ScaleControl">
+            <input
+              id="hasm-visualizer-z-scale"
+              type="range"
+              min="0.5"
+              max="2.0"
+              step="0.1"
+              className="HasmVisualizer_Input form-range"
+              value={filter.zScaleFactor}
+              onChange={(e) => setFilter(nextLayoutFilter(filter, 'zScaleFactor', e.target.value))}
+            />
+            <output htmlFor="hasm-visualizer-z-scale" className="HasmVisualizer_ScaleValue">{filter.zScaleFactor}x</output>
+          </div>
         </div>
 
-        {toolbarSlot}
+        {toolbarSlot ? <div className="HasmVisualizer_ToolbarActions">{toolbarSlot}</div> : null}
       </div>
 
       {/* GRAPH STAGE (2D split view or 3D WebGL) */}

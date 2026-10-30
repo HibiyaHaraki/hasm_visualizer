@@ -75,6 +75,15 @@ Driving a host application's own package, with layout computed by a backend:
 
 ## Large package handling
 
+The toolbar groups sample package, Scope, View, Time scale, Z scale, and host
+actions in that order. Scope lists are initially collapsed in a viewport-bounded
+overlay, keeping the graph visible. The trigger shows the current entity count.
+Done, Escape, the trigger, or an outside pointer press closes the panel without
+resetting scope; Done/Escape restore trigger focus. Opening and closing it does
+not recalculate layout. Narrow screens use a two-column control grid rather than
+a horizontally scrolling toolbar. Labels can override the new `graphControls`,
+`scope`, `scopeSelection`, `allEntities`, `selected`, and `done` strings.
+
 Scope selection narrows the **model** before layout rather than trimming geometry afterwards, so neither the layout engine nor the GPU ever sees the whole package:
 
 - Both scope controls are multi-select. A plain click **toggles** one entry and keeps the rest of the selection, so any number of PERSONs and EXPERIENCEs can be combined without holding Ctrl/Cmd. Modifier-click and keyboard range selection still behave natively, and each control has **All** / **None** buttons.
