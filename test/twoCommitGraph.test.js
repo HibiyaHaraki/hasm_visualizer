@@ -2,7 +2,17 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createCommitGraph2D } from "../twoCommitGraph.js";
 import { computeVisualizerLayoutJS } from "../layoutCalculator.js";
-import { computeTimeLayout } from "../graph2DLayout.js";
+import { computeTimeLayout, deduplicateFactPlacements } from "../graph2DLayout.js";
+
+test("TC-03-2D-IDENTITY-001 same-line copies collapse without removing distinct placements or reflections", () => {
+  const direct = { id: "fact", entityType: "FACT", x: 6, y: 0, z: 3, isDirectFact: true };
+  const reflection = { ...direct, x: 0, isDirectFact: false };
+  const experience = { id: "experience", entityType: "EXPERIENCE", x: 6, y: 0, z: 0 };
+  const payload = { nodes3d: [experience, { ...direct, isDirectFact: false }, direct, { ...direct }, reflection], lines3d: [] };
+  const result = deduplicateFactPlacements(payload);
+  assert.deepEqual(result.nodes3d, [experience, direct, reflection]);
+  assert.equal(payload.nodes3d.length, 5);
+});
 
 test("TC-03-2D-TIME-001 time projection handles empty, coincident, and scaled coordinates", () => {
   const empty = computeTimeLayout({ nodes3d: [] }, 30, 37, 400);

@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { createCommitGraph, buildEntityColors, buildExperienceColorMaps, positionKey, limitRenderedNodes, DEFAULT_MAX_RENDERED_NODES } from './threeCommitGraph.js';
 import { createCommitGraph2D } from './twoCommitGraph.js';
-import { computeFactRowIndexById, computeLaneIndexByKey, graphWidthForLaneCount, ROW_HEIGHT_PX, TABLE_HEADER_HEIGHT_PX, TIME_AXIS_WIDTH_PX } from './graph2DLayout.js';
+import { computeFactRowIndexById, computeLaneIndexByKey, graphWidthForLaneCount, ROW_HEIGHT_PX, TABLE_HEADER_HEIGHT_PX, TIME_AXIS_WIDTH_PX, deduplicateFactPlacements } from './graph2DLayout.js';
 import { DEFAULT_LAYOUT_FILTER, nextLayoutFilter, TIME_SCALE_MODES } from './layoutFilter.js';
 import { computeVisualizerLayoutJS } from './layoutCalculator.js';
 import { SAMPLE_HASM_MODELS } from './sampleModels.js';
@@ -19,6 +19,7 @@ import {
 import { getPatternById } from '../hasm_color_pattern/src/index.js';
 import { createLogger } from '../hasm_logger/src/react/logger.js';
 import './visualizer-design.css';
+import { ExperienceBadge, experienceAtNode } from './ExperienceBadge.jsx';
 
 const logger = createLogger('hasm-3d-visualizer');
 
@@ -88,29 +89,33 @@ export function HasmVisualizerComponent({
   model = null,
   computeLayout = null,
   onSelectNode = null,
+  getNodeHref = null,
   maxRenderedNodes = DEFAULT_MAX_RENDERED_NODES,
   scopePromptThreshold = DEFAULT_SCOPE_PROMPT_THRESHOLD,
   factDatesById = null,
   headerSlot = null,
   toolbarSlot = null,
   overlaySlot = null,
+  initialViewState = null,
 }) {
   const sceneRef = useRef(null);
   const disposeSceneRef = useRef(() => {});
   // Camera/view state is kept per view mode: 2D (orthographic zoom) and 3D (perspective
   // position/quaternion) states are incompatible, so each mode restores only its own state.
-  const viewStateByModeRef = useRef({});
+  const viewStateByModeRef = useRef(initialViewState?.views || {});
   const lastModeRef = useRef('2d');
   const hasComputedRef = useRef(false);
 
   const [selectedModelIndex, setSelectedModelIndex] = useState(0);
-  const [filter, setFilter] = useState(DEFAULT_LAYOUT_FILTER);
-  const [scope, setScope] = useState(EMPTY_SCOPE);
+  const [filter, setFilter] = useState(initialViewState?.filter || DEFAULT_LAYOUT_FILTER);
+  const [scope, setScope] = useState(initialViewState?.scope || EMPTY_SCOPE);
   const [scopeOpen, setScopeOpen] = useState(false);
   const scopeMenuRef = useRef(null);
   const scopeButtonRef = useRef(null);
   const scopePanelId = useId();
-  const [viewMode, setViewMode] = useState('2d');
+  const [viewMode, setViewMode] = useState(initialViewState?.viewMode || '2d');
+  const settingsRef = useRef(null);
+  settingsRef.current = { filter, scope, viewMode };
   const [hoveredNode, setHoveredNode] = useState(null);
   const [selectedNode, setSelectedNode] = useState(null);
   const [isSceneRendering, setIsSceneRendering] = useState(false);
@@ -156,8 +161,8 @@ export function HasmVisualizerComponent({
   // Layout is computed once per model/filter/scope change and shared by the graph effect below and
   // the 2D FACT table, so the table rows stay aligned with the graph lanes.
   const [layoutPayload, setLayoutPayload] = useState(null);
-  const [renderedZScale, setRenderedZScale] = useState(DEFAULT_LAYOUT_FILTER.zScaleFactor);
-  const [renderedTimeScale, setRenderedTimeScale] = useState(DEFAULT_LAYOUT_FILTER.timeScaleMode);
+  const [renderedZScale, setRenderedZScale] = useState(filter.zScaleFactor);
+  const [renderedTimeScale, setRenderedTimeScale] = useState(filter.timeScaleMode);
   const isTimeAxis2D = renderedTimeScale !== 'SequentialIndex';
   useEffect(() => {
     if (needsScope) {
@@ -193,9 +198,11 @@ export function HasmVisualizerComponent({
   const { payload: renderPayload, warning: budgetWarning } = useMemo(
     () => {
       if (!layoutPayload) return { payload: null, warning: '' };
-      return usesRenderBudget ? limitRenderedNodes(layoutPayload, maxRenderedNodes) : { payload: layoutPayload, warning: '' };
+      const payload = usesRenderBudget && renderedTimeScale === 'SequentialIndex'
+        ? deduplicateFactPlacements(layoutPayload) : layoutPayload;
+      return usesRenderBudget ? limitRenderedNodes(payload, maxRenderedNodes) : { payload, warning: '' };
     },
-    [layoutPayload, maxRenderedNodes, usesRenderBudget],
+    [layoutPayload, maxRenderedNodes, usesRenderBudget, renderedTimeScale],
   );
   const combinedBudgetWarning = [layoutBudgetWarning, budgetWarning].filter(Boolean).join(' ');
 
@@ -205,7 +212,7 @@ export function HasmVisualizerComponent({
     if (!renderPayload) return [];
     const factNodeById = new Map();
     renderPayload.nodes3d.forEach((node) => {
-      if (node.entityType === 'FACT' && !factNodeById.has(node.id)) factNodeById.set(node.id, node);
+      if (node.entityType === 'FACT' && (!factNodeById.has(node.id) || node.isDirectFact && !factNodeById.get(node.id).isDirectFact)) factNodeById.set(node.id, node);
     });
     const rows = [];
     computeFactRowIndexById(renderPayload).forEach((rowIndex, id) => {
@@ -241,7 +248,7 @@ export function HasmVisualizerComponent({
   // FACT and its table row stay at the same height no matter which pane is scrolled. Kept as a ref
   // (not React state): syncing through setState+useEffect adds a render round trip between the two
   // panes updating, which is visible as jitter/shaking during fast or momentum scrolling.
-  const scrollTop2DRef = useRef(0);
+  const scrollTop2DRef = useRef(initialViewState?.views?.['2d']?.scrollTop || 0);
   const factTableRef = useRef(null);
   // Clamp against the FACT table's own measured scroll extent (not an assumed pane height), so the
   // graph and table can never be driven to different scroll ranges and lose row/dot alignment.
@@ -288,7 +295,12 @@ export function HasmVisualizerComponent({
 
   const handleSelectNode = useCallback((node) => {
     setSelectedNode(node);
-    if (onSelectNode) onSelectNode(node);
+    const { filter, scope, viewMode } = settingsRef.current;
+    if (onSelectNode) onSelectNode(node, {
+      filter, scope, viewMode,
+      views: { ...viewStateByModeRef.current,
+        [viewMode]: disposeSceneRef.current.getViewState?.() || viewStateByModeRef.current[viewMode] },
+    });
   }, [onSelectNode]);
 
   const applyPersonIds = useCallback((personIds) => {
@@ -653,10 +665,9 @@ export function HasmVisualizerComponent({
                 </thead>
                 <tbody>
                   {factRows.map((row) => {
-                    const rowColor =
-                      experienceColors?.factColorByPositionKey.get(positionKey(row.x, row.y)) ||
-                      experienceColors?.entityColors.FACT;
                     const isActive = hoveredNode?.id === row.id || selectedNode?.id === row.id;
+                    const experience = experienceAtNode(renderPayload, row);
+                    const experienceColor = experience && experienceColors?.trunkColorByPositionKey.get(positionKey(experience.x, experience.y));
                     return (
                       <tr
                         key={row.id}
@@ -666,8 +677,13 @@ export function HasmVisualizerComponent({
                         onClick={() => handleSelectNode(row)}
                       >
                         <td title={row.label}>
-                          <span className="HasmVisualizer_FactDot" style={{ background: rowColor }} />
-                          {row.label}
+                          <ExperienceBadge experience={experience} color={experienceColor} theme={themeColors} inline
+                            href={experience && onSelectNode ? getNodeHref?.(experience) : undefined}
+                            onSelect={handleSelectNode} />
+                          {' '}
+                          <span className="HasmVisualizer_FactTitle">
+                            {row.label}
+                          </span>
                         </td>
                         <td>{resolvedFactDates.get(row.id) || ''}</td>
                       </tr>
@@ -697,6 +713,9 @@ export function HasmVisualizerComponent({
             className="graph-tooltip HasmVisualizer_Tooltip"
             style={{ left: hoveredNode.screenX, top: hoveredNode.screenY }}
           >
+            <ExperienceBadge experience={experienceAtNode(renderPayload, hoveredNode)}
+              color={hoveredNode.entityType === 'FACT' ? experienceColors?.trunkColorByPositionKey.get(positionKey(hoveredNode.x, hoveredNode.y)) : undefined}
+              theme={themeColors} />
             [{hoveredNode.entityType}] {hoveredNode.label}
             {viewMode === '2d' && isTimeAxis2D && hoveredNode.entityType === 'FACT' && (
               <div>{labels?.factTime || 'Time'}: {resolvedFactDates.get(hoveredNode.id) || ''}</div>
