@@ -11,6 +11,19 @@ export const LANE_WIDTH_PX = 56;
 export const LANE_LEFT_MARGIN_PX = 21;
 export const TIME_AXIS_WIDTH_PX = 190;
 
+// Preserve distinct branch placements/reflections, but prefer direct records for duplicate lanes.
+export function deduplicateFactPlacements(payload) {
+  const placements = new Map();
+  for (const node of payload.nodes3d) {
+    if (node.entityType !== "FACT") continue;
+    const key = `${node.id}|${positionKey(node.x, node.y)}`;
+    if (!placements.has(key) || node.isDirectFact) placements.set(key, node);
+  }
+  return { ...payload, nodes3d: [
+    ...payload.nodes3d.filter((node) => node.entityType !== "FACT"), ...placements.values(),
+  ] };
+}
+
 // SEQ-MD-03: project the backend's selected time scale without assigning FACT rows.
 export function computeTimeLayout(payload, rowHeightPx, headerHeightPx, viewportHeightPx = 0) {
   const factsByZ = new Map();

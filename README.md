@@ -68,6 +68,7 @@ Driving a host application's own package, with layout computed by a backend:
 | `model` | `null` | External HASM model. When omitted, the bundled sample selector is shown instead. Accepts both camelCase and snake_case entity keys. |
 | `computeLayout` | `null` | `(scopedModel, filter, { isFilterUpdate }) => payload \| Promise<payload>`. Defaults to the bundled `computeVisualizerLayoutJS`. Rejections are left to the host to present. |
 | `onSelectNode` | `null` | Called on node click. When supplied, the built-in node inspector is suppressed. |
+| `initialViewState` | `null` | Restores `{ filter, scope, viewMode, views }` on mount. `onSelectNode(node, viewState)` supplies the current snapshot, including per-mode scroll/camera state, for a host to carry through ticket navigation. No global/browser storage is used. |
 | `maxRenderedNodes` | `4000` | Render budget. Surplus FACT nodes are trimmed and a warning names how many were withheld. |
 | `scopePromptThreshold` | `2000` | Above this entity count an unscoped model is not laid out; a PERSON/EXPERIENCE selection is requested first. |
 | `factDatesById` | derived | `Map<factId, date>` used for Z-axis tick labels. |
@@ -102,6 +103,8 @@ Scope selection narrows the **model** before layout rather than trimming geometr
 - In SequentialIndex, the 2D graph width uses the shared lane geometry, placing the FACT/Time table immediately after the rightmost lane's label area. Many lanes cause horizontal scrolling rather than clipping or a percentage-based empty gap.
 - SequentialIndex keeps newest-first, equally spaced rows. Z scale multiplies row height (30px at 1x) and matching SVG coordinates together. Linear/Logarithmic hide the table, show a date-labeled time Y-axis, and position simultaneous FACTs at the same Y using the layout's time coordinates. FACT names/dates are available on hover. These modes scroll in the graph and Z scale multiplies the timeline extent, preserving distance ratios. A failed layout retains the previous geometry, time mode, and scale. 3D behavior is unchanged.
 - PERSONs are used for ownership and scope selection, not rendered as graph nodes. PERSON-related LINKs are not drawn.
+- SequentialIndex discards accidental repeated FACT projections with the same UUID and EXPERIENCE position, preferring a direct projection over a reflected duplicate. Distinct direct placements and ancestor reflections remain visible, with one FACT title row per UUID.
+- FACT hover shows one EXPERIENCE badge resolved from the exact hovered marker's XY line, never the FACT's complete EXPERIENCE list. The SequentialIndex title table shows the representative direct EXPERIENCE badge above the FACT title (falling back to a reflected branch when no direct projection survived). Badges use the branch color and a contrast-safe foreground; hosts can reuse `ExperienceBadge.jsx` for compact detail graphs.
 - If the host cannot initialize WebGL or loses its context, the component logs the failure and falls back to the SVG-based 2D view.
 
 ## Suggested integration after adding as submodule

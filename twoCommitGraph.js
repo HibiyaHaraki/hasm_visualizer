@@ -16,6 +16,7 @@ import {
   rowCenterY,
   TIME_AXIS_WIDTH_PX,
   computeTimeLayout,
+  deduplicateFactPlacements,
 } from "./graph2DLayout.js";
 import { createLinkGeometryResolver, linkHighlightIds } from "./linkGeometry.js";
 
@@ -46,6 +47,7 @@ function readThemeVar(container, name, fallback) {
 }
 
 export function createCommitGraph2D(container, payload, theme, onSelect, onHover, factDatesById, initialViewState, scrollSync) {
+  if (scrollSync?.timeScaleMode === "SequentialIndex") payload = deduplicateFactPlacements(payload);
   container.textContent = "";
   container.style.position = "relative";
   container.style.overflow = "hidden";

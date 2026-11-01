@@ -126,3 +126,21 @@ node --test src/hasm_visualizer/test/*.test.js
 Tests cover viewport clipping, perspective and aspect-ratio correctness,
 time-to-Y projection and SequentialIndex rows, legacy layout input, recursive FACT hover,
 scroll updates, and dashed-only SVG output.
+## FACT identity, EXPERIENCE badges and navigation state
+
+In 2D SequentialIndex, identical FACT UUID/XY projections are rendered once;
+direct projections take precedence over reflected duplicates. Separate EXPERIENCE
+placements and recursive ancestor reflections are intentional and remain visible.
+The FACT title table retains one row per UUID.
+
+FACT hover identifies exactly the EXPERIENCE whose XY line contains that marker,
+including ancestor reflections. A Bootstrap-like badge appears alongside the FACT
+title, with the branch's generated color and contrast-safe foreground. The
+SequentialIndex FACT table places a representative direct EXPERIENCE badge above
+the title; a reflected projection is used only when no direct one survives scope.
+Compact host graphs reuse the same badge component and position lookup.
+
+Hosts may pass `initialViewState` and retain the second argument to
+`onSelectNode(node, viewState)` across ticket navigation. The snapshot contains
+filter, scope, 2D/3D mode and per-mode renderer camera/scroll states. It is
+workspace-specific route context, not persisted model metadata or global storage.
