@@ -664,9 +664,6 @@ export function HasmVisualizerComponent({
                 </thead>
                 <tbody>
                   {factRows.map((row) => {
-                    const rowColor =
-                      experienceColors?.factColorByPositionKey.get(positionKey(row.x, row.y)) ||
-                      experienceColors?.entityColors.FACT;
                     const isActive = hoveredNode?.id === row.id || selectedNode?.id === row.id;
                     const experience = experienceAtNode(renderPayload, row);
                     const experienceColor = experience && experienceColors?.trunkColorByPositionKey.get(positionKey(experience.x, experience.y));
@@ -679,9 +676,9 @@ export function HasmVisualizerComponent({
                         onClick={() => handleSelectNode(row)}
                       >
                         <td title={row.label}>
-                          <ExperienceBadge experience={experience} color={experienceColor} theme={themeColors} />
+                          <ExperienceBadge experience={experience} color={experienceColor} theme={themeColors} inline />
+                          {' '}
                           <span className="HasmVisualizer_FactTitle">
-                            <span className="HasmVisualizer_FactDot" style={{ background: rowColor }} />
                             {row.label}
                           </span>
                         </td>

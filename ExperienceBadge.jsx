@@ -8,9 +8,9 @@ export function experienceAtNode(payload, node) {
     && positionKey(candidate.x, candidate.y) === key) || null;
 }
 
-export function ExperienceBadge({ experience, color, theme }) {
+export function ExperienceBadge({ experience, color, theme, inline = false }) {
   if (!experience) return null;
-  return <span className="badge HasmVisualizer_ExperienceBadge" title={experience.label}
+  return <span className={`badge HasmVisualizer_ExperienceBadge${inline ? ' HasmVisualizer_ExperienceBadgeInline' : ''}`} title={experience.label}
     style={{ backgroundColor: color, color: ensureReadableColor(theme.textColor, color) }}>
     {experience.label}
   </span>;

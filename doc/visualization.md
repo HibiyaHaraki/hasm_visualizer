@@ -136,8 +136,10 @@ The FACT title table retains one row per UUID.
 FACT hover identifies exactly the EXPERIENCE whose XY line contains that marker,
 including ancestor reflections. A Bootstrap-like badge appears alongside the FACT
 title, with the branch's generated color and contrast-safe foreground. The
-SequentialIndex FACT table places a representative direct EXPERIENCE badge above
-the title; a reflected projection is used only when no direct one survives scope.
+SequentialIndex FACT table places a representative direct EXPERIENCE badge before
+the title on the same line, separated by a space; a reflected projection is used
+only when no direct one survives scope.
+The name badge replaces the table's color-only dot; SVG FACT markers are unchanged.
 Compact host graphs reuse the same badge component and position lookup.
 
 Hosts may pass `initialViewState` and retain the second argument to
