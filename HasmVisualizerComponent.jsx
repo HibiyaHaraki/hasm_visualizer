@@ -89,6 +89,7 @@ export function HasmVisualizerComponent({
   model = null,
   computeLayout = null,
   onSelectNode = null,
+  getNodeHref = null,
   maxRenderedNodes = DEFAULT_MAX_RENDERED_NODES,
   scopePromptThreshold = DEFAULT_SCOPE_PROMPT_THRESHOLD,
   factDatesById = null,
@@ -676,7 +677,9 @@ export function HasmVisualizerComponent({
                         onClick={() => handleSelectNode(row)}
                       >
                         <td title={row.label}>
-                          <ExperienceBadge experience={experience} color={experienceColor} theme={themeColors} inline />
+                          <ExperienceBadge experience={experience} color={experienceColor} theme={themeColors} inline
+                            href={experience && onSelectNode ? getNodeHref?.(experience) : undefined}
+                            onSelect={handleSelectNode} />
                           {' '}
                           <span className="HasmVisualizer_FactTitle">
                             {row.label}

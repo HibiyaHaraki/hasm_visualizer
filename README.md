@@ -68,6 +68,7 @@ Driving a host application's own package, with layout computed by a backend:
 | `model` | `null` | External HASM model. When omitted, the bundled sample selector is shown instead. Accepts both camelCase and snake_case entity keys. |
 | `computeLayout` | `null` | `(scopedModel, filter, { isFilterUpdate }) => payload \| Promise<payload>`. Defaults to the bundled `computeVisualizerLayoutJS`. Rejections are left to the host to present. |
 | `onSelectNode` | `null` | Called on node click. When supplied, the built-in node inspector is suppressed. |
+| `getNodeHref` | `null` | Host-owned `(node) => href` for EXPERIENCE table badges. Badge activation uses `onSelectNode` with the EXPERIENCE node and view snapshot, without selecting the surrounding FACT row. |
 | `initialViewState` | `null` | Restores `{ filter, scope, viewMode, views }` on mount. `onSelectNode(node, viewState)` supplies the current snapshot, including per-mode scroll/camera state, for a host to carry through ticket navigation. No global/browser storage is used. |
 | `maxRenderedNodes` | `4000` | Render budget. Surplus FACT nodes are trimmed and a warning names how many were withheld. |
 | `scopePromptThreshold` | `2000` | Above this entity count an unscoped model is not laid out; a PERSON/EXPERIENCE selection is requested first. |

@@ -139,6 +139,10 @@ title, with the branch's generated color and contrast-safe foreground. The
 SequentialIndex FACT table places a representative direct EXPERIENCE badge before
 the title on the same line, separated by a space; a reflected projection is used
 only when no direct one survives scope.
+
+Hosts can provide `getNodeHref` with `onSelectNode` to link table EXPERIENCE badges
+to their entity tickets while preserving the view snapshot. Badge clicks do not
+select the surrounding FACT row.
 The name badge replaces the table's color-only dot; SVG FACT markers are unchanged.
 Compact host graphs reuse the same badge component and position lookup.
 

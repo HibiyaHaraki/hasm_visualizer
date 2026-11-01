@@ -8,10 +8,16 @@ export function experienceAtNode(payload, node) {
     && positionKey(candidate.x, candidate.y) === key) || null;
 }
 
-export function ExperienceBadge({ experience, color, theme, inline = false }) {
+export function ExperienceBadge({ experience, color, theme, inline = false, href, onSelect }) {
   if (!experience) return null;
-  return <span className={`badge HasmVisualizer_ExperienceBadge${inline ? ' HasmVisualizer_ExperienceBadgeInline' : ''}`} title={experience.label}
+  const Tag = href ? 'a' : 'span';
+  return <Tag className={`badge HasmVisualizer_ExperienceBadge${inline ? ' HasmVisualizer_ExperienceBadgeInline' : ''}`} title={experience.label}
+    href={href} onClick={href && onSelect ? (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      onSelect(experience);
+    } : undefined}
     style={{ backgroundColor: color, color: ensureReadableColor(theme.textColor, color) }}>
     {experience.label}
-  </span>;
+  </Tag>;
 }
