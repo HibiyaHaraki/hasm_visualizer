@@ -83,7 +83,7 @@ a.HasmVisualizer_ExperienceBadge.badge:focus-visible { outline: 2px solid var(--
   border-left: 4px solid var(--theme-primary);
   background: var(--theme-soft);
 }
-.HasmVisualizer_Container .HasmVisualizer_InspectorTitle { margin: 0 0 6px; font-family: Georgia, serif; font-size: 1.1rem; font-weight: 700; }
+.HasmVisualizer_Container .HasmVisualizer_InspectorTitle { margin: 0 0 6px; font-family: inherit; font-size: 1.1rem; font-weight: 700; }
 .HasmVisualizer_Container .HasmVisualizer_InspectorMeta { display: flex; flex-wrap: wrap; gap: 12px; color: var(--theme-muted); font-size: 0.8rem; }
 
 /* 2D/3D view mode toggle */
@@ -140,7 +140,7 @@ a.HasmVisualizer_ExperienceBadge.badge:focus-visible { outline: 2px solid var(--
 }
 .HasmVisualizer_ScopePanel[hidden] { display: none; }
 .HasmVisualizer_PanelHeader { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
-.HasmVisualizer_PanelHeader h2 { margin: 0; font-family: Georgia, serif; font-size: 1rem; letter-spacing: 0.03em; }
+.HasmVisualizer_PanelHeader h2 { margin: 0; font-family: inherit; font-size: 1rem; letter-spacing: 0.03em; }
 .HasmVisualizer_ScopeFooter { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--theme-border); }
 
 /* Keep the FACT table immediately after the last lane; scroll horizontally rather than clip lanes. */
@@ -277,7 +277,7 @@ a.HasmVisualizer_ExperienceBadge.badge:focus-visible { outline: 2px solid var(--
   max-width: 46ch;
   margin-inline: auto;
   text-align: center;
-  font-family: Georgia, serif;
+  font-family: inherit;
   line-height: 1.8;
   letter-spacing: 0.03em;
   color: var(--theme-muted);
