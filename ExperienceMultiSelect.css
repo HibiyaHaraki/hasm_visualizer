@@ -1,0 +1,35 @@
+.experience-multi { position: relative; min-width: 0; }
+.experience-multi > label { display: block; margin-bottom: .35rem; }
+.experience-multi-field {
+  display: flex; flex-wrap: wrap; align-items: center; gap: .3rem;
+  min-width: 0; padding: .35rem; border: 1px solid var(--theme-border, #777);
+  background: var(--theme-surface, #f3f1ec); color: var(--theme-text, #222);
+}
+.experience-multi-field:focus-within { outline: 2px solid var(--theme-text, #222); outline-offset: 1px; }
+.experience-multi-field input {
+  flex: 1 1 7rem; min-width: 0; border: 0; outline: 0;
+  background: transparent; color: inherit; font: inherit;
+}
+.experience-multi-badge {
+  display: inline-flex; align-items: center; gap: .35rem; max-width: 100%;
+  white-space: normal; overflow-wrap: anywhere; text-align: left;
+  color: var(--theme-text, #222); background: var(--theme-soft, #e5e2dc);
+  border: 1px solid var(--theme-border, #777);
+}
+.experience-multi-badge button {
+  flex: none; padding: 0 .2rem; border: 0; background: transparent;
+  color: inherit; font: inherit; cursor: pointer;
+}
+.experience-multi-menu {
+  position: absolute; z-index: 20; top: 100%; left: 0; width: 100%;
+  max-height: 16rem; overflow-y: auto; border: 1px solid var(--theme-border, #777);
+  background: var(--theme-surface, #f3f1ec); color: var(--theme-text, #222);
+}
+.experience-multi-menu button, .experience-multi-empty {
+  display: block; width: 100%; padding: .45rem .6rem; text-align: left;
+  border: 0; background: transparent; color: inherit; overflow-wrap: anywhere;
+}
+.experience-multi-menu button:hover, .experience-multi-menu button:focus {
+  background: var(--theme-soft, #e5e2dc);
+}
+.experience-multi-menu button[aria-selected="true"] { font-weight: bold; border-inline-start: 3px solid currentColor; }

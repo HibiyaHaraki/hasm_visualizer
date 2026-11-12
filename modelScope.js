@@ -29,7 +29,7 @@ export const factIdOf = (fact) => readId(fact, "fact_id", "factId", "id");
 export const linkIdOf = (link) => readId(link, "link_id", "linkId", "id");
 
 const personNameOf = (person) => readId(person, "person_name", "personName", "name") || personIdOf(person);
-const experienceNameOf = (experience) => readId(experience, "experience_name", "experienceName", "name") || experienceIdOf(experience);
+const experienceNameOf = (experience) => readId(experience, "experience_name", "experienceName", "name") || "Untitled EXPERIENCE";
 const ownerIdOf = (experience) => readId(experience, "person_id", "personId");
 const parentIdsOf = (experience) => readIdList(experience, "parent_experience_ids", "parentExperienceIds");
 const factExperienceIdsOf = (fact) => readIdList(fact, "experience_ids", "experienceIds");
