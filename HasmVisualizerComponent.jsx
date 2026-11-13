@@ -50,8 +50,23 @@ function limitModelForLayout(model, maxFacts) {
   const keptExperienceIds = new Set(keptFacts.flatMap((fact) => readIdList(fact, 'experience_ids', 'experienceIds')));
   const keptPeopleIds = new Set(keptFacts.flatMap((fact) => readIdList(fact, 'person_ids', 'personIds')));
 
-  const people = (model.people || []).filter((person) => keptPeopleIds.size === 0 || keptPeopleIds.has(personIdOf(person)));
+  const experienceById = new Map((model.experiences || []).map((experience) => [experienceIdOf(experience), experience]));
+  const pending = [...keptExperienceIds];
+  while (pending.length) {
+    const experience = experienceById.get(pending.pop());
+    for (const id of readIdList(experience, 'parent_experience_ids', 'parentExperienceIds')) {
+      if (!keptExperienceIds.has(id)) {
+        keptExperienceIds.add(id);
+        pending.push(id);
+      }
+    }
+  }
   const experiences = (model.experiences || []).filter((experience) => keptExperienceIds.has(experienceIdOf(experience)));
+  experiences.forEach((experience) => {
+    const owner = experience.personId || experience.person_id;
+    if (owner) keptPeopleIds.add(String(owner));
+  });
+  const people = (model.people || []).filter((person) => keptPeopleIds.size === 0 || keptPeopleIds.has(personIdOf(person)));
   const keptEntityIds = new Set([
     ...people.map(personIdOf),
     ...experiences.map(experienceIdOf),
@@ -714,6 +729,9 @@ export function HasmVisualizerComponent({
               color={hoveredNode.entityType === 'FACT' ? experienceColors?.trunkColorByPositionKey.get(positionKey(hoveredNode.x, hoveredNode.y)) : undefined}
               theme={themeColors} />
             [{hoveredNode.entityType}] {hoveredNode.label}
+            {hoveredNode.entityType === 'EXPERIENCE' && hoveredNode.personName && (
+              <div>{labels?.owner || 'Owner'}: {hoveredNode.personName}</div>
+            )}
             {viewMode === '2d' && isTimeAxis2D && hoveredNode.entityType === 'FACT' && (
               <div>{labels?.factTime || 'Time'}: {resolvedFactDates.get(hoveredNode.id) || ''}</div>
             )}
