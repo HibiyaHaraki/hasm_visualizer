@@ -61,7 +61,8 @@ export function createCommitGraph2D(container, payload, theme, onSelect, onHover
   if (isTimeline) container.style.overflowY = "auto";
 
   const laneIndexByKey = computeLaneIndexByKey(payload);
-  const laneXPx = (key) => laneX(laneIndexByKey, key) + LANE_LEFT_MARGIN_PX + (isTimeline ? TIME_AXIS_WIDTH_PX : 0);
+  const laneWidthPx = scrollSync?.laneWidthPx ?? LANE_WIDTH_PX;
+  const laneXPx = (key) => laneX(laneIndexByKey, key, laneWidthPx) + LANE_LEFT_MARGIN_PX + (isTimeline ? TIME_AXIS_WIDTH_PX : 0);
   const experienceIdByPositionKey = new Map(payload.nodes3d
     .filter((node) => node.entityType === "EXPERIENCE")
     .map((node) => [positionKey(node.x, node.y), node.id]));
@@ -88,7 +89,7 @@ export function createCommitGraph2D(container, payload, theme, onSelect, onHover
     y: timeLayout ? timeLayout.toY(point[2]) : (rowYByZ.get(point[2]) ?? zFallbackY(point[2])),
   });
 
-  const graphWidthPx = graphWidthForLaneCount(laneIndexByKey.size) + (isTimeline ? TIME_AXIS_WIDTH_PX : 0);
+  const graphWidthPx = graphWidthForLaneCount(laneIndexByKey.size, laneWidthPx) + (isTimeline ? TIME_AXIS_WIDTH_PX : 0);
   const contentHeightPx = timeLayout?.contentHeightPx ?? (headerHeightPx + rowCount * rowHeightPx);
 
   // Scrollable content lives in a plain, non-scrolling wrapper moved by `transform: translateY`;
@@ -160,7 +161,8 @@ export function createCommitGraph2D(container, payload, theme, onSelect, onHover
       // Long names must never overlap into a neighboring lane's label and visually cover it (the
       // later-appended label paints on top): clip to this lane's own width instead, full text is
       // still available via the title tooltip.
-      label.style.cssText = `position: absolute; left: ${laneXPx(key) + LANE_LABEL_GAP_PX}px; top: 50%; transform: translateY(-50%); color: ${trunkColor}; font-weight: 700; font-size: 0.78rem; white-space: nowrap; max-width: ${Math.max(LANE_WIDTH_PX - LANE_LABEL_GAP_PX, 40)}px; overflow: hidden; text-overflow: ellipsis; background: transparent; border: 0; padding: 0; text-align: left; cursor: ${onSelect ? "pointer" : "default"};`;
+      const labelGap = Math.min(LANE_LABEL_GAP_PX, laneWidthPx / 4);
+      label.style.cssText = `position: absolute; left: ${laneXPx(key) + labelGap}px; top: 50%; transform: translateY(-50%); color: ${trunkColor}; font-weight: 700; font-size: 0.78rem; white-space: nowrap; max-width: ${Math.max(laneWidthPx - labelGap, 0)}px; overflow: hidden; text-overflow: ellipsis; background: transparent; border: 0; padding: 0; text-align: left; cursor: ${onSelect ? "pointer" : "default"};`;
       header.appendChild(label);
     });
   container.appendChild(header);
@@ -258,7 +260,7 @@ export function createCommitGraph2D(container, payload, theme, onSelect, onHover
       const key = positionKey(node.x, node.y);
       const color = factColorByPositionKey.get(key) || entityColors.FACT;
       const circle = svgEl("circle", {
-        cx: laneXPx(key), cy: timeLayout ? timeLayout.toY(node.z) : factRowCenterY(node.id), r: FACT_RADIUS_PX,
+        cx: laneXPx(key), cy: timeLayout ? timeLayout.toY(node.z) : factRowCenterY(node.id), r: Math.min(FACT_RADIUS_PX, laneWidthPx * 0.4),
         fill: node.isDirectFact ? color : "none",
         stroke: color,
         "stroke-width": node.isDirectFact ? 0 : 2,
