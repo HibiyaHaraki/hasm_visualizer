@@ -20,6 +20,7 @@ import { getPatternById } from '../hasm_color_pattern/src/index.js';
 import { createLogger } from '../hasm_logger/src/react/logger.js';
 import './visualizer-design.css';
 import { ExperienceBadge, experienceAtNode } from './ExperienceBadge.jsx';
+import { ExperienceMultiSelect } from './ExperienceMultiSelect.jsx';
 
 const logger = createLogger('hasm-3d-visualizer');
 
@@ -525,22 +526,18 @@ export function HasmVisualizerComponent({
                 </div>
               )}
               <div className="HasmVisualizer_ScopeField">
-                <label className="HasmVisualizer_Label" htmlFor="hasm-visualizer-experience-scope">
-                  {labels?.experienceScope || 'EXPERIENCE scope'}
-                </label>
-                <select
+                <ExperienceMultiSelect
                   id="hasm-visualizer-experience-scope"
-                  className="HasmVisualizer_Select HasmVisualizer_ScopeSelect form-select form-select-sm"
-                  multiple
-                  size={Math.min(Math.max(experienceOptions.length, 2), 8)}
+                  label={labels?.experienceScope || 'EXPERIENCE scope'}
+                  options={experienceOptions}
                   value={scope.experienceIds}
-                  onMouseDown={(event) => toggleOptionOnPlainClick(event, applyExperienceIds)}
-                  onChange={(event) => applyExperienceIds(selectedValues(event.currentTarget))}
-                >
-                  {experienceOptions.map((option) => (
-                    <option key={option.id} value={option.id}>{option.label}</option>
-                  ))}
-                </select>
+                  onChange={applyExperienceIds}
+                  emptyLabel={labels?.noExperienceAvailable || 'No EXPERIENCE available'}
+                  noMatchesLabel={labels?.noMatchingExperiences || 'No matching experiences.'}
+                  unavailableLabel={labels?.unavailableExperience || 'Unavailable EXPERIENCE'}
+                  removeLabel={(title) => labels?.removeExperience
+                    ? labels.removeExperience.replace('{title}', title) : `Remove ${title}`}
+                />
                 <div className="HasmVisualizer_ScopeActions">
                   <button
                     type="button"

@@ -20,6 +20,7 @@ Centralizes the 3D visualizer so multiple HASM projects can reuse the same imple
 - `threeCommitGraph.js` — Three.js commit graph renderer and render-budget helper
 - `twoCommitGraph.js` — 2D commit graph renderer
 - `modelScope.js` — PERSON / EXPERIENCE scope narrowing for large packages
+- `ExperienceMultiSelect.jsx` / `ExperienceMultiSelect.css` — standalone searchable EXPERIENCE multi-picker
 - `layoutFilter.js` — layout filter/time-scale state helpers
 - `layoutCalculator.js` — JS port of the Rust `calculate_layout` command
 - `graph2DLayout.js` — row and lane math shared by the 2D graph and FACT table
@@ -85,6 +86,12 @@ resetting scope; Done/Escape restore trigger focus. Opening and closing it does
 not recalculate layout. Narrow screens use a two-column control grid rather than
 a horizontally scrolling toolbar. Labels can override the new `graphControls`,
 `scope`, `scopeSelection`, `allEntities`, `selected`, and `done` strings.
+
+The EXPERIENCE scope shows all eligible titles for an empty search and filters
+titles case-insensitively as the user types. Selected titles are removable badges;
+UUIDs remain internal. Escape closes the picker before closing the scope panel.
+Labels may also override `noExperienceAvailable`, `noMatchingExperiences`,
+`unavailableExperience`, and `removeExperience` (with a `{title}` placeholder).
 
 Scope selection narrows the **model** before layout rather than trimming geometry afterwards, so neither the layout engine nor the GPU ever sees the whole package:
 
