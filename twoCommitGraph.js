@@ -148,13 +148,19 @@ export function createCommitGraph2D(container, payload, theme, onSelect, onHover
     .forEach((node) => {
       const key = positionKey(node.x, node.y);
       const trunkColor = trunkColorByPositionKey.get(key) || entityColors.EXPERIENCE;
-      const label = document.createElement("span");
-      label.textContent = node.label;
-      label.title = node.label;
+      const label = document.createElement(onSelect ? "button" : "span");
+      const title = node.label?.trim() ? node.label : "Untitled EXPERIENCE";
+      label.textContent = title;
+      label.title = title;
+      if (onSelect) {
+        label.type = "button";
+        label.setAttribute("aria-label", scrollSync?.experienceLabel?.(title) || `Open EXPERIENCE: ${title}`);
+        label.addEventListener("click", () => onSelect(node));
+      }
       // Long names must never overlap into a neighboring lane's label and visually cover it (the
       // later-appended label paints on top): clip to this lane's own width instead, full text is
       // still available via the title tooltip.
-      label.style.cssText = `position: absolute; left: ${laneXPx(key) + LANE_LABEL_GAP_PX}px; top: 50%; transform: translateY(-50%); color: ${trunkColor}; font-weight: 700; font-size: 0.78rem; white-space: nowrap; max-width: ${Math.max(LANE_WIDTH_PX - LANE_LABEL_GAP_PX, 40)}px; overflow: hidden; text-overflow: ellipsis;`;
+      label.style.cssText = `position: absolute; left: ${laneXPx(key) + LANE_LABEL_GAP_PX}px; top: 50%; transform: translateY(-50%); color: ${trunkColor}; font-weight: 700; font-size: 0.78rem; white-space: nowrap; max-width: ${Math.max(LANE_WIDTH_PX - LANE_LABEL_GAP_PX, 40)}px; overflow: hidden; text-overflow: ellipsis; background: transparent; border: 0; padding: 0; text-align: left; cursor: ${onSelect ? "pointer" : "default"};`;
       header.appendChild(label);
     });
   container.appendChild(header);
