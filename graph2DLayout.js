@@ -43,8 +43,8 @@ export function computeTimeLayout(payload, rowHeightPx, headerHeightPx, viewport
   };
 }
 
-export function graphWidthForLaneCount(laneCount) {
-  return LANE_LEFT_MARGIN_PX + Math.max(1, laneCount) * LANE_WIDTH_PX + 10;
+export function graphWidthForLaneCount(laneCount, laneWidthPx = LANE_WIDTH_PX) {
+  return LANE_LEFT_MARGIN_PX + Math.max(1, laneCount) * laneWidthPx + 10;
 }
 
 // One lane per parallel EXPERIENCE branch (root branches included), plus fallback
@@ -82,8 +82,8 @@ export function computeFactRowIndexById(payload) {
   return rowIndexById;
 }
 
-export function laneX(laneIndexByKey, key) {
-  return (laneIndexByKey.get(key) ?? 0) * LANE_WIDTH_PX;
+export function laneX(laneIndexByKey, key, laneWidthPx = LANE_WIDTH_PX) {
+  return (laneIndexByKey.get(key) ?? 0) * laneWidthPx;
 }
 
 // Pixel Y, measured from the top of the scrollable content (header included), of the
