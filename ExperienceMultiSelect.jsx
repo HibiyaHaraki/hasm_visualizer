@@ -5,12 +5,15 @@ import './ExperienceMultiSelect.css';
 export function ExperienceMultiSelect({ id, label, options, value, onChange, disabled = false,
   emptyLabel = 'No EXPERIENCE available', noMatchesLabel = 'No matching experiences.',
   unavailableLabel = 'Unavailable EXPERIENCE', removeLabel = (title) => `Remove ${title}`,
-  entityPreview = false, onDismiss = () => {} }) {
-  const [query, setQuery] = useState('');
+  placeholder = 'Select EXPERIENCES', searchLabel = `Search ${label}`,
+  searchPlaceholder = 'Search experiences', searchValue, onSearchChange,
+  entityPreview = false, entityType = 'EXPERIENCE', onDismiss = () => {} }) {
+  const [draftQuery, setDraftQuery] = useState('');
+  const query = searchValue ?? draftQuery;
   const [open, setOpen] = useState(false);
   const root = useRef(null);
-  const input = useRef(null);
-  const focusFirst = useRef(false);
+  const trigger = useRef(null);
+  const search = useRef(null);
   const suppressFocusOpen = useRef(false);
   const dismissRef = useRef(onDismiss);
   dismissRef.current = onDismiss;
@@ -18,16 +21,15 @@ export function ExperienceMultiSelect({ id, label, options, value, onChange, dis
   const matches = options.filter((option) => option.label.toLocaleLowerCase().includes(normalized));
   const selected = value.map((selectedId) => options.find((option) => option.id === selectedId)
     || { id: selectedId, label: unavailableLabel });
+  const unavailable = disabled || (!options.length && !value.length);
   useEffect(() => {
     dismissRef.current();
     return () => dismissRef.current();
   }, [query, open, options]);
   useEffect(() => {
-    if (open && focusFirst.current) {
-      focusFirst.current = false;
-      root.current?.querySelector('[role="option"]')?.focus();
-    }
+    if (open) search.current?.focus();
   }, [open]);
+  useEffect(() => { if (unavailable) setOpen(false); }, [unavailable]);
   useEffect(() => {
     if (!open) return undefined;
     const close = (event) => {
@@ -51,12 +53,14 @@ export function ExperienceMultiSelect({ id, label, options, value, onChange, dis
         dismissRef.current();
         setOpen(false);
         suppressFocusOpen.current = true;
-        input.current?.focus();
+        trigger.current?.focus();
         suppressFocusOpen.current = false;
       }
     }}>
       <label htmlFor={id}>{label}</label>
-      <div className="experience-multi-field" onClick={() => input.current?.focus()}>
+      <div className="experience-multi-field" onClick={() => {
+        if (!unavailable) { setOpen(true); search.current?.focus(); }
+      }}>
         {selected.map((option) => (
           <span className="badge experience-multi-badge" key={option.id}>
             <span>{option.label}</span>
@@ -64,41 +68,56 @@ export function ExperienceMultiSelect({ id, label, options, value, onChange, dis
               onClick={(event) => { event.stopPropagation(); onChange(value.filter((item) => item !== option.id)); }}>×</button>
           </span>
         ))}
-        <input ref={input} id={id} role="combobox" aria-expanded={open}
-          aria-controls={`${id}-choices`} aria-autocomplete="list" aria-haspopup="listbox"
-          disabled={disabled || (!options.length && !value.length)} value={query}
-          placeholder={!options.length ? emptyLabel : undefined}
+        <button ref={trigger} id={id} type="button" role="combobox" aria-expanded={open}
+          aria-label={label} aria-controls={`${id}-choices`} aria-haspopup="listbox"
+          className="experience-multi-trigger" disabled={unavailable}
           onFocus={() => { if (!suppressFocusOpen.current) setOpen(true); }}
           onClick={() => setOpen(true)}
-          onChange={(event) => { setQuery(event.target.value); setOpen(true); }}
           onKeyDown={(event) => {
             if (event.key === 'ArrowDown') {
               event.preventDefault();
-              if (open) focusOption(0);
-              else { focusFirst.current = true; setOpen(true); }
+              setOpen(true);
+              search.current?.focus();
             }
-            if (event.key === 'Enter') {
-              event.preventDefault();
-              if (open && matches.length) select(matches[0]);
-              else setOpen(true);
-            }
-          }} />
+          }}>
+          {!options.length ? emptyLabel : !selected.length ? placeholder : null}
+        </button>
       </div>
-      {open && <div id={`${id}-choices`} className="experience-multi-menu" role="listbox"
-        aria-label={label} aria-multiselectable="true">
-        {!matches.length && <div className="experience-multi-empty" role="status">{options.length ? noMatchesLabel : emptyLabel}</div>}
-        {matches.map((option, index) => (
-          <button type="button" role="option" key={option.id} aria-selected={value.includes(option.id)}
-            data-entity-type={entityPreview ? 'EXPERIENCE' : undefined}
-            data-entity-id={entityPreview ? option.id : undefined}
-            onClick={() => select(option)}
+      {open && <div className="experience-multi-menu">
+        <div className="experience-multi-search">
+          <input ref={search} type="search" aria-label={searchLabel}
+            aria-controls={`${id}-choices`} placeholder={searchPlaceholder} value={query}
+            onChange={(event) => {
+              if (onSearchChange) onSearchChange(event.target.value);
+              else setDraftQuery(event.target.value);
+            }}
             onKeyDown={(event) => {
-              if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+              if (event.key === 'ArrowDown') {
                 event.preventDefault();
-                focusOption(index + (event.key === 'ArrowDown' ? 1 : -1));
+                focusOption(0);
               }
-            }}>{option.label}</button>
-        ))}
+              if (event.key === 'Enter') {
+                event.preventDefault();
+                if (matches.length) select(matches[0]);
+              }
+            }} />
+        </div>
+        <div id={`${id}-choices`} className="experience-multi-choices" role="listbox"
+          aria-label={label} aria-multiselectable="true">
+          {!matches.length && <div className="experience-multi-empty" role="status">{options.length ? noMatchesLabel : emptyLabel}</div>}
+          {matches.map((option, index) => (
+            <button type="button" role="option" key={option.id} aria-selected={value.includes(option.id)}
+              data-entity-type={entityPreview ? entityType : undefined}
+              data-entity-id={entityPreview ? option.id : undefined}
+              onClick={() => select(option)}
+              onKeyDown={(event) => {
+                if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+                  event.preventDefault();
+                  focusOption(index + (event.key === 'ArrowDown' ? 1 : -1));
+                }
+              }}>{option.label}</button>
+          ))}
+        </div>
       </div>}
     </div>
   );
