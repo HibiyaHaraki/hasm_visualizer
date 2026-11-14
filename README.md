@@ -30,6 +30,16 @@ Centralizes the 3D visualizer so multiple HASM projects can reuse the same imple
 - `visualizer-design.css` — component styles
 - `index.js` — barrel export
 
+`ExperienceMultiSelect` is also reusable for FACT choices. It displays one
+field containing removable Bootstrap-style badges; opening the field focuses
+the search input at the top of the dropdown, above a scrollable multi-select
+listbox. Callers provide `{ id, label }` options and selected opaque IDs.
+`searchLabel`, `searchPlaceholder`, and `placeholder` customize labels;
+optional `searchValue` / `onSearchChange` preserve a host-owned query draft.
+With `entityPreview`, `entityType` selects the host preview metadata type
+(default `EXPERIENCE`), and `onDismiss` handles preview cleanup.
+No Bootstrap JavaScript or additional package dependency is required.
+
 ## Dependencies
 
 This folder only depends on sibling `hasm_color_pattern` and `hasm_logger` folders via relative imports (`../hasm_color_pattern`, `../hasm_logger`). When consuming this repo as a submodule, place it alongside those two at the same depth (e.g. `src/hasm_visualizer`, `src/hasm_color_pattern`, `src/hasm_logger`).
