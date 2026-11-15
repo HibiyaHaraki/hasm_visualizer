@@ -21,8 +21,40 @@ Each recursively reflected FACT retains the original FACT ID and timestamp.
 Reflections are not additional events. A FACT without an EXPERIENCE uses the
 fallback lane. PERSON-related LINKs are not drawn.
 
-Colors derive from the supplied HASM theme, with readable contrast and a
-distinct hue per EXPERIENCE. Direct and reflected FACTs use their lane's hue.
+Colors derive from the EXPERIENCE and FACT IDs in the rendered payload and the
+already scoped/budgeted model; off-scope and withheld entities do not contribute.
+Parent-connected EXPERIENCEs form lineage components ordered by their smallest
+UUID. Within each component, a deterministic breadth-first traversal starts at
+that UUID and visits visible relationship neighbors by descending accumulated
+weight, then UUID; unvisited IDs are appended in UUID order. For $N$ visible
+EXPERIENCEs and palette rank $r_i$, hue is $360°(r_i+\frac{1}{2})/N$, spreading
+the palette across the full color wheel and placing related neighbors at nearby
+palette positions. With visible relationship degree $d_i$ and maximum degree
+$d_{max}$, $c_i=\ln(1+d_i)/\ln(1+d_{max})$ (or zero when $d_{max}=0$);
+saturation is $55\%+30\%c_i$, and lightness is
+$70\%-16\%c_i-8\%$ of normalized hierarchy depth. HSL colors are converted to
+HEX and adjusted to WCAG AA contrast against the active background. FACT markers
+use their EXPERIENCE's HSL color blended 40% toward the theme text color, with
+the same contrast adjustment. The shared color maps serve 2D, 3D, distribution,
+detail graphs, and reference badges.
+
+The scope and FACT layout budgets are applied before computation in both 2D
+and 3D. A large unscoped model, or a selected scope retaining too many
+PERSON/EXPERIENCE/LINK records, requests a narrower scope without invoking the
+layout. When the FACT budget is exceeded, only the retained FACTs, their
+EXPERIENCE ancestors, required owner PERSONs, and fully contained LINKs enter
+layout; the FACT projection budget is enforced again before scene creation.
+Both steps report withheld FACTs.
+
+The X coordinate remains six units per parent depth. Each depth is ordered by
+six deterministic weighted-barycenter sweeps. Parent centroids bias children;
+parent/child edges have weight four, EXPERIENCE LINK pairs add weight three per
+LINK, and shared FACT relationships add weight one per relationship. The layer
+center is the mean parent centroid (or zero for a parentless layer). Adjacent
+EXPERIENCEs have a Y gap of $2+2/(1+\ln(1+w))$, where $w$ is their accumulated
+relationship weight; unrelated lanes stay four units apart and stronger
+relationships approach a two-unit minimum. Final Y positions preserve the
+layer's parent-centroid mean.
 3D time coordinates follow the selected time scale and Z scale. 2D SequentialIndex
 keeps equally spaced, newest-first FACT rows and its FACT/Time table; Z scale changes
 row height. Linear/Logarithmic hide the table and project layout time coordinates
@@ -31,6 +63,26 @@ FACTs (including reflections). Ticks show FACT dates; overlapping labels are omi
 not moved. Z scale changes the timeline extent. These modes use native graph
 scrolling with a fixed header; FACT names/dates appear on hover and clicks still
 select the entity.
+
+## 3D camera
+
+The initial perspective camera fits the rendered graph and its timeline/labels,
+looking horizontally across XY with later time (positive Z) upward.
+In 3D, **XY top view** fits the graph looking down from positive Z with positive
+Y upward. Both automatic views refit when the viewport changes, until the user
+starts orbiting, panning or zooming. Saved camera positions are restored instead
+of being refitted. Scope and the render budget still determine what is visible.
+
+## XY EXPERIENCE distribution
+
+The separate XY view displays all scoped EXPERIENCEs at their layout XY
+positions, including those without FACTs, plus solid parent/child lines. It
+does not draw FACT markers or a FACT table. LINKs appear as dashed selectable
+curves: each FACT endpoint maps to all its directly associated visible
+EXPERIENCEs, while EXPERIENCE endpoints map to themselves. Distinct endpoint
+pairs form all projected pairs, including loops when they map to the same
+EXPERIENCE. Duplicate pairs from one LINK collapse; separate LINKs remain
+selectable. PERSON, missing, and unassociated FACT endpoints are omitted.
 
 ## LINK endpoints
 

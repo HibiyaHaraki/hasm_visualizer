@@ -21,6 +21,7 @@ import { createLogger } from '../hasm_logger/src/react/logger.js';
 import './visualizer-design.css';
 import { ExperienceBadge, experienceAtNode } from './ExperienceBadge.jsx';
 import { ExperienceMultiSelect } from './ExperienceMultiSelect.jsx';
+import ExperienceDistribution from './ExperienceDistribution.jsx';
 
 const logger = createLogger('hasm-3d-visualizer');
 
@@ -135,6 +136,7 @@ export function HasmVisualizerComponent({
   const [hoveredNode, setHoveredNode] = useState(null);
   const [selectedNode, setSelectedNode] = useState(null);
   const [isSceneRendering, setIsSceneRendering] = useState(false);
+  const [is3DReady, setIs3DReady] = useState(false);
   const [renderError, setRenderError] = useState('');
   const rendererFallbackMessage = labels?.rendererFallback || '3D rendering is unavailable; switched to 2D.';
   const renderingFailedMessage = labels?.renderingFailed || 'The 2D graph could not be rendered.';
@@ -167,16 +169,21 @@ export function HasmVisualizerComponent({
   const scopedModel = useMemo(() => scopeModel(activeModel, scope), [activeModel, scope]);
   const totalEntityCount = useMemo(() => countModelEntities(activeModel), [activeModel]);
   const scopedEntityCount = useMemo(() => countModelEntities(scopedModel), [scopedModel]);
-  const usesRenderBudget = viewMode === '2d';
+  const scopedNonFactEntityCount = (scopedModel?.people?.length || 0)
+    + (scopedModel?.experiences?.length || 0)
+    + (scopedModel?.links?.length || 0);
+  const needsScope = (isEmptyScope(scope) && totalEntityCount > scopePromptThreshold)
+    || (!isEmptyScope(scope) && scopedNonFactEntityCount > scopePromptThreshold);
   const { model: layoutModel, warning: layoutBudgetWarning } = useMemo(
-    () => (usesRenderBudget ? limitModelForLayout(scopedModel, maxRenderedNodes) : { model: scopedModel, warning: '' }),
-    [scopedModel, maxRenderedNodes, usesRenderBudget],
+    () => (needsScope ? { model: scopedModel, warning: '' } : limitModelForLayout(scopedModel, maxRenderedNodes)),
+    [scopedModel, maxRenderedNodes, needsScope],
   );
-  const needsScope = isEmptyScope(scope) && totalEntityCount > scopePromptThreshold;
 
   // Layout is computed once per model/filter/scope change and shared by the graph effect below and
   // the 2D FACT table, so the table rows stay aligned with the graph lanes.
   const [layoutPayload, setLayoutPayload] = useState(null);
+  const [renderedModel, setRenderedModel] = useState(null);
+  const relationshipModel = renderedModel || layoutModel;
   const [renderedZScale, setRenderedZScale] = useState(filter.zScaleFactor);
   const [renderedTimeScale, setRenderedTimeScale] = useState(filter.timeScaleMode);
   const isTimeAxis2D = renderedTimeScale !== 'SequentialIndex';
@@ -200,6 +207,7 @@ export function HasmVisualizerComponent({
         if (!active || !payload) return;
         hasComputedRef.current = true;
         setLayoutPayload(payload);
+        setRenderedModel(layoutModel);
         setRenderedZScale(filter.zScaleFactor);
         setRenderedTimeScale(filter.timeScaleMode);
       })
@@ -214,11 +222,11 @@ export function HasmVisualizerComponent({
   const { payload: renderPayload, warning: budgetWarning } = useMemo(
     () => {
       if (!layoutPayload) return { payload: null, warning: '' };
-      const payload = usesRenderBudget && renderedTimeScale === 'SequentialIndex'
+      const payload = viewMode === '2d' && renderedTimeScale === 'SequentialIndex'
         ? deduplicateFactPlacements(layoutPayload) : layoutPayload;
-      return usesRenderBudget ? limitRenderedNodes(payload, maxRenderedNodes) : { payload, warning: '' };
+      return limitRenderedNodes(payload, maxRenderedNodes);
     },
-    [layoutPayload, maxRenderedNodes, usesRenderBudget, renderedTimeScale],
+    [layoutPayload, maxRenderedNodes, renderedTimeScale, viewMode],
   );
   const combinedBudgetWarning = [layoutBudgetWarning, budgetWarning].filter(Boolean).join(' ');
 
@@ -297,9 +305,9 @@ export function HasmVisualizerComponent({
     if (!renderPayload) return null;
     return {
       entityColors: buildEntityColors(themeColors),
-      ...buildExperienceColorMaps(renderPayload, themeColors),
+      ...buildExperienceColorMaps(renderPayload, themeColors, relationshipModel),
     };
-  }, [renderPayload, colorPattern]);
+  }, [renderPayload, colorPattern, relationshipModel]);
   const resolvedFactDates = useMemo(() => {
     if (factDatesById) return factDatesById;
     const map = new Map();
@@ -332,6 +340,12 @@ export function HasmVisualizerComponent({
   }, []);
 
   useEffect(() => {
+    setIs3DReady(false);
+    if (viewMode === 'distribution') {
+      disposeSceneRef.current = () => {};
+      lastModeRef.current = viewMode;
+      return undefined;
+    }
     if (!sceneRef.current || !renderPayload) return undefined;
 
     logger.debug(`Rendering ${viewMode.toUpperCase()} commit graph`, {
@@ -391,6 +405,7 @@ export function HasmVisualizerComponent({
               timeScaleMode: renderedTimeScale,
               timeLabel: labels?.factTime || 'Time',
             },
+            relationshipModel,
           );
           // Keep the rebuilt graph at the FACT table's current shared scroll offset.
           if (!isTimeAxis2D) syncScrollTop2D(scrollTop2DRef.current);
@@ -410,7 +425,9 @@ export function HasmVisualizerComponent({
             resolvedFactDates,
             viewStateByModeRef.current[viewMode],
             handleThreeError,
+            relationshipModel,
           );
+          if (active) setIs3DReady(typeof disposeSceneRef.current.setTopView === 'function');
         }
         if (active) setIsSceneRendering(false);
       } catch (error) {
@@ -428,6 +445,7 @@ export function HasmVisualizerComponent({
 
     return () => {
       active = false;
+      setIs3DReady(false);
       cancel(frameId);
       setIsSceneRendering(false);
       if (typeof disposeSceneRef.current?.getViewState === 'function') {
@@ -441,7 +459,7 @@ export function HasmVisualizerComponent({
       }
       disposeSceneRef.current();
     };
-  }, [renderPayload, viewMode, colorPattern, handleSelectNode, resolvedFactDates, rendererFallbackMessage, renderingFailedMessage, rowHeightPx, renderedTimeScale, labels?.factTime]);
+  }, [renderPayload, viewMode, colorPattern, handleSelectNode, resolvedFactDates, rendererFallbackMessage, renderingFailedMessage, rowHeightPx, renderedTimeScale, labels?.factTime, relationshipModel]);
 
   const scopeSummary = isEmptyScope(scope)
     ? `${totalEntityCount} entities`
@@ -586,7 +604,7 @@ export function HasmVisualizerComponent({
           </div>
         </div>
 
-        <div className="HasmVisualizer_ControlGroup">
+        <div className="HasmVisualizer_ControlGroup HasmVisualizer_ViewGroup">
           <span className="HasmVisualizer_Label">
             {labels?.viewMode || 'View Mode'}
           </span>
@@ -607,8 +625,33 @@ export function HasmVisualizerComponent({
             >
               3D
             </button>
+            <button
+              type="button"
+              className={`HasmVisualizer_ViewToggleButton btn btn-sm btn-outline-secondary${viewMode === 'distribution' ? ' is-active active' : ''}`}
+              aria-label={labels?.distributionViewLabel || 'XY EXPERIENCE distribution'}
+              aria-pressed={viewMode === 'distribution'}
+              onClick={() => { setRenderError(''); setHoveredNode(null); setViewMode('distribution'); }}
+            >
+              {labels?.distributionView || 'XY'}
+            </button>
           </div>
         </div>
+
+        {viewMode === '3d' && (
+          <div className="HasmVisualizer_ControlGroup">
+            <button
+              type="button"
+              className="HasmVisualizer_ViewToggleButton btn btn-sm btn-outline-secondary"
+              disabled={!is3DReady || isSceneRendering || needsScope}
+              onClick={() => {
+                logger.debug('[SEQ-MD-03][CAMERA] Showing XY top view');
+                disposeSceneRef.current.setTopView?.();
+              }}
+            >
+              {labels?.topView || 'XY top view'}
+            </button>
+          </div>
+        )}
 
         <div className="HasmVisualizer_ControlGroup HasmVisualizer_TimeGroup">
           <label className="HasmVisualizer_Label" htmlFor="hasm-visualizer-time-scale">
@@ -650,11 +693,13 @@ export function HasmVisualizerComponent({
       </div>
 
       {/* GRAPH STAGE (2D split view or 3D WebGL) */}
-      <div className="graph-stage HasmVisualizer_Stage" aria-label={viewMode === '2d' ? '2D Commit Graph' : '3D Commit Graph'}>
+      <div className="graph-stage HasmVisualizer_Stage" aria-label={viewMode === '2d' ? '2D Commit Graph' : viewMode === '3d' ? '3D Commit Graph' : 'EXPERIENCE distribution graph'}>
         {needsScope ? (
           <p className="HasmVisualizer_ScopePrompt">
             {labels?.scopePrompt
-              || `This package holds ${totalEntityCount} entities. Select a PERSON or EXPERIENCE scope above to visualize part of it.`}
+              || (isEmptyScope(scope)
+                ? `This package holds ${totalEntityCount} entities. Select a PERSON or EXPERIENCE scope above to visualize part of it.`
+                : `This scope contains ${scopedNonFactEntityCount} PERSON, EXPERIENCE, and LINK records. Narrow it to visualize this graph.`)}
           </p>
         ) : viewMode === '2d' ? (
           <div className="HasmVisualizer_Split2D" style={{ '--HasmVisualizer-row-height': `${rowHeightPx}px` }}>
@@ -705,6 +750,11 @@ export function HasmVisualizerComponent({
               </table>
             </div>}
           </div>
+        ) : viewMode === 'distribution' ? (
+          renderPayload && renderedModel && <ExperienceDistribution
+            payload={renderPayload} model={renderedModel}
+            theme={themeColors} onSelect={handleSelectNode}
+            onHover={(node, event) => setHoveredNode(node ? { ...node, screenX: event.clientX, screenY: event.clientY } : null)} />
         ) : (
           <div className="graph-canvas HasmVisualizer_Canvas" ref={sceneRef} />
         )}
@@ -751,16 +801,18 @@ export function HasmVisualizerComponent({
           <span className="HasmVisualizer_LegendMark HasmVisualizer_LegendExperience" aria-hidden="true" />
           <span>{labels?.experienceLegend || 'EXPERIENCE (fixed-position timeline)'}</span>
         </div>
-        <div className="HasmVisualizer_LegendItem">
+        {viewMode !== 'distribution' && <div className="HasmVisualizer_LegendItem">
           <span className="HasmVisualizer_LegendMark HasmVisualizer_LegendFact" aria-hidden="true" />
           <span>{labels?.factLegend || 'FACT (solid = recorded; hollow = reflected)'}</span>
-        </div>
+        </div>}
         <div className="HasmVisualizer_LegendItem">
           <span className="HasmVisualizer_LegendMark HasmVisualizer_LegendLink" aria-hidden="true" />
           <span>{labels?.linkLegend || 'LINK (dashed line)'}</span>
         </div>
         <div className="HasmVisualizer_LegendHint">
-          {viewMode === '2d'
+          {viewMode === 'distribution'
+            ? (labels?.interactionDistribution || 'Select an EXPERIENCE or LINK to inspect.')
+            : viewMode === '2d'
             ? (labels?.interaction2d || 'Scroll to move along time; click a marker to inspect.')
             : (labels?.interaction3d || 'Drag to rotate, scroll to zoom, and click a marker to inspect.')}
         </div>

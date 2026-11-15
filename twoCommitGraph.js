@@ -46,7 +46,7 @@ function readThemeVar(container, name, fallback) {
   return value || fallback;
 }
 
-export function createCommitGraph2D(container, payload, theme, onSelect, onHover, factDatesById, initialViewState, scrollSync) {
+export function createCommitGraph2D(container, payload, theme, onSelect, onHover, factDatesById, initialViewState, scrollSync, relationshipModel = {}) {
   if (scrollSync?.timeScaleMode === "SequentialIndex") payload = deduplicateFactPlacements(payload);
   container.textContent = "";
   container.style.position = "relative";
@@ -54,7 +54,7 @@ export function createCommitGraph2D(container, payload, theme, onSelect, onHover
   container.style.background = theme.textBackgroundColor;
 
   const entityColors = buildEntityColors(theme);
-  const { trunkColorByPositionKey, factColorByPositionKey } = buildExperienceColorMaps(payload, theme);
+  const { trunkColorByPositionKey, factColorByPositionKey } = buildExperienceColorMaps(payload, theme, relationshipModel);
   const highlightColor = ensureReadableColor(theme.textColor, theme.textBackgroundColor);
   const borderColor = readThemeVar(container, "--theme-border", "rgba(128,128,128,0.4)");
   const isTimeline = scrollSync?.timeScaleMode === "Linear" || scrollSync?.timeScaleMode === "Logarithmic";

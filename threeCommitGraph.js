@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { createLinkGeometryResolver, linkHighlightIds } from "./linkGeometry.js";
+import { buildExperienceHierarchy, buildExperienceRelationshipGraph } from "./relationshipGraph.js";
 
 function hexToRgb(hexColor) {
   const hex = String(hexColor).replace("#", "");
@@ -54,8 +55,6 @@ export function buildEntityColors(theme) {
   };
 }
 
-const GOLDEN_ANGLE_DEGREES = 137.508;
-
 function hslToHex(hue, saturationPercent, lightnessPercent) {
   const s = saturationPercent / 100;
   const l = lightnessPercent / 100;
@@ -72,25 +71,98 @@ function positionKey(x, y) {
 }
 export { positionKey };
 
-// Spreads each EXPERIENCE around the hue wheel by the golden angle (hue_i = i * 137.508 deg mod 360), which
-// keeps adjacent branches maximally distinguishable no matter how many EXPERIENCEs exist. FACT commits on a given
-// EXPERIENCE reuse that same hue but blend toward the theme's text color, so they read as a related, lighter
-// tint of their own branch rather than an identical or unrelated color.
-// Shared with the 2D renderer so both modes display identical EXPERIENCE/FACT colors.
-export function buildExperienceColorMaps(payload, theme) {
+function visibleExperienceIds(payload) {
+  return new Set((payload.nodes3d || [])
+    .filter((node) => node.entityType === "EXPERIENCE")
+    .map((node) => String(node.id)));
+}
+
+function visibleFactIds(payload) {
+  return new Set((payload.nodes3d || [])
+    .filter((node) => node.entityType === "FACT")
+    .map((node) => String(node.id)));
+}
+
+function orderLineageExperienceIds(lineageId, lineageExperienceIds, lineageIdByExperienceId, adjacencyByExperienceId) {
+  const orderedIds = [];
+  const queuedIds = new Set([lineageId]);
+  const pendingIds = [lineageId];
+  for (let cursor = 0; cursor < pendingIds.length; cursor += 1) {
+    const id = pendingIds[cursor];
+    orderedIds.push(id);
+    const neighbors = [...(adjacencyByExperienceId.get(id) || new Map()).entries()]
+      .filter(([neighborId]) => lineageIdByExperienceId.get(neighborId) === lineageId
+        && !queuedIds.has(neighborId))
+      .sort((first, second) => second[1] - first[1] || first[0].localeCompare(second[0]));
+    neighbors.forEach(([neighborId]) => {
+      queuedIds.add(neighborId);
+      pendingIds.push(neighborId);
+    });
+  }
+  lineageExperienceIds.forEach((id) => {
+    if (!queuedIds.has(id)) orderedIds.push(id);
+  });
+  return orderedIds;
+}
+
+// [REQ-03-RULE-009] Visible parent-connected lineages occupy contiguous portions of a full-wheel
+// palette; weighted relationship neighbors receive nearby hues, while density and depth adjust tone.
+export function buildExperienceColorMaps(payload, theme, model = {}) {
   const background = theme.textBackgroundColor;
   const trunkColorByPositionKey = new Map();
+  const trunkColorByEntityId = new Map();
   const factColorByPositionKey = new Map();
-  payload.nodes3d.filter((node) => node.entityType === "EXPERIENCE").forEach((node, index) => {
-    const hue = (index * GOLDEN_ANGLE_DEGREES) % 360;
-    const baseColor = hslToHex(hue, 58, 42);
-    const trunkColor = ensureReadableColor(mixHex(baseColor, theme.mainColor, 0.25), background);
+  const visibleExperienceIdsForGraph = visibleExperienceIds(payload);
+  const { relationshipCountByExperienceId, adjacencyByExperienceId } = buildExperienceRelationshipGraph(
+    model,
+    { experienceIds: visibleExperienceIdsForGraph, factIds: visibleFactIds(payload) },
+  );
+  const { depthByExperienceId, lineageIdByExperienceId } = buildExperienceHierarchy(
+    model,
+    visibleExperienceIdsForGraph,
+  );
+  const experienceIdsByLineageId = new Map();
+  lineageIdByExperienceId.forEach((lineageId, id) => {
+    const ids = experienceIdsByLineageId.get(lineageId) || [];
+    ids.push(id);
+    experienceIdsByLineageId.set(lineageId, ids);
+  });
+  const lineageIds = [...experienceIdsByLineageId.keys()].sort();
+  const orderedExperienceIds = lineageIds.flatMap((lineageId) => (
+    orderLineageExperienceIds(
+      lineageId,
+      experienceIdsByLineageId.get(lineageId).sort(),
+      lineageIdByExperienceId,
+      adjacencyByExperienceId,
+    )
+  ));
+  const hueByExperienceId = new Map(orderedExperienceIds.map((id, index) => [
+    id,
+    (360 * (index + 0.5)) / Math.max(orderedExperienceIds.length, 1),
+  ]));
+  const maxRelationshipCount = [...relationshipCountByExperienceId.values()]
+    .reduce((maximum, count) => Math.max(maximum, count), 0);
+  const maxDepth = [...depthByExperienceId.values()]
+    .reduce((maximum, depth) => Math.max(maximum, depth), 0);
+  (payload.nodes3d || []).filter((node) => node.entityType === "EXPERIENCE").forEach((node) => {
+    const id = String(node.id);
+    const density = maxRelationshipCount
+      ? Math.log1p(relationshipCountByExperienceId.get(id) || 0) / Math.log1p(maxRelationshipCount)
+      : 0;
+    const depth = depthByExperienceId.get(id) || 0;
+    const depthRatio = maxDepth ? depth / maxDepth : 0;
+    const hue = hueByExperienceId.get(id) || 0;
+    const saturation = 55 + (30 * density);
+    const lightness = 70 - (16 * density) - (8 * depthRatio);
+    const baseColor = hslToHex(hue, saturation, lightness);
+    const trunkColor = ensureReadableColor(baseColor, background);
     const factColor = ensureReadableColor(mixHex(baseColor, theme.textColor, 0.4), background);
     const key = positionKey(node.x, node.y);
     trunkColorByPositionKey.set(key, trunkColor);
+    trunkColorByEntityId.set(id, trunkColor);
     factColorByPositionKey.set(key, factColor);
   });
-  return { trunkColorByPositionKey, factColorByPositionKey };
+  return { trunkColorByPositionKey, trunkColorByEntityId, factColorByPositionKey };
 }
 
 // Number of Z-axis tick labels drawn at most. Each label is a canvas-backed sprite, so a package
@@ -197,22 +269,46 @@ function createTimelineAxis(scene, payload, factDatesById, color) {
   return disposables;
 }
 
-export function createCommitGraph(container, payload, theme, onSelect, onHover, factDatesById, initialViewState, onError) {
+// SEQ-MD-03: include curved connectors and labels, not just FACT positions.
+function graphBounds(payload) {
+  const bounds = new THREE.Box3();
+  payload.nodes3d.forEach((node) => {
+    if (node.entityType !== "PERSON") bounds.expandByPoint(new THREE.Vector3(node.x, node.y, node.z));
+  });
+  payload.lines3d.forEach((line) => {
+    [line.from, line.to, ...(line.controlPoints || [])].forEach((point) => {
+      bounds.expandByPoint(new THREE.Vector3(...point));
+    });
+  });
+  const facts = payload.nodes3d.filter((node) => node.entityType === "FACT");
+  if (facts.length) {
+    const maxZ = facts.reduce((highest, node) => Math.max(highest, node.z), 0);
+    bounds.expandByPoint(new THREE.Vector3(-14.2, 0, 0));
+    bounds.expandByPoint(new THREE.Vector3(-14.2, 0, maxZ));
+  }
+  if (bounds.isEmpty()) bounds.set(new THREE.Vector3(-1, -1, -1), new THREE.Vector3(1, 1, 1));
+  bounds.min.sub(new THREE.Vector3(2, 2, 0.6));
+  bounds.max.add(new THREE.Vector3(2, 2, 0.6));
+  return bounds;
+}
+
+export function createCommitGraph(container, payload, theme, onSelect, onHover, factDatesById, initialViewState, onError, relationshipModel = {}) {
   const width = Math.max(container.clientWidth, 1);
   const height = Math.max(container.clientHeight, 1);
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(theme.textBackgroundColor);
   const entityColors = buildEntityColors(theme);
-  const { trunkColorByPositionKey, factColorByPositionKey } = buildExperienceColorMaps(payload, theme);
+  const { trunkColorByPositionKey, factColorByPositionKey } = buildExperienceColorMaps(payload, theme, relationshipModel);
 
   const camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 1000);
+  const bounds = graphBounds(payload);
+  const sphere = bounds.getBoundingSphere(new THREE.Sphere());
   const restore3D = initialViewState && initialViewState.position && initialViewState.quaternion;
+  if (restore3D && initialViewState.up) camera.up.copy(initialViewState.up);
+  else if (!restore3D) camera.up.set(0, 0, 1);
   if (restore3D) {
     camera.position.copy(initialViewState.position);
     camera.quaternion.copy(initialViewState.quaternion);
-  } else {
-    camera.position.set(13, 11, 20);
-    camera.lookAt(0, 0, 5);
   }
 
   let renderer;
@@ -231,12 +327,46 @@ export function createCommitGraph(container, payload, theme, onSelect, onHover, 
   renderer.domElement.style.touchAction = "none";
 
   const controls = new OrbitControls(camera, renderer.domElement);
-  if (restore3D && initialViewState.target) { controls.target.copy(initialViewState.target); } else { controls.target.set(0, 0, 5); }
   controls.enableDamping = false;
   controls.enablePan = true;
   controls.minDistance = 4;
-  controls.maxDistance = 80;
+  let autoFitDirection = null;
+  const fitView = (direction) => {
+    const verticalHalfFov = THREE.MathUtils.degToRad(camera.fov / 2);
+    const horizontalHalfFov = Math.atan(Math.tan(verticalHalfFov) * camera.aspect);
+    const right = new THREE.Vector3().crossVectors(camera.up, direction).normalize();
+    const up = new THREE.Vector3().crossVectors(direction, right).normalize();
+    let distance = controls.minDistance;
+    for (const x of [bounds.min.x, bounds.max.x]) {
+      for (const y of [bounds.min.y, bounds.max.y]) {
+        for (const z of [bounds.min.z, bounds.max.z]) {
+          const corner = new THREE.Vector3(x, y, z).sub(sphere.center);
+          const depth = corner.dot(direction);
+          const extent = Math.max(Math.abs(corner.dot(right)) / Math.tan(horizontalHalfFov),
+            Math.abs(corner.dot(up)) / Math.tan(verticalHalfFov));
+          distance = Math.max(distance, depth + extent * 1.1, depth + camera.near * 2);
+        }
+      }
+    }
+    controls.target.copy(sphere.center);
+    camera.position.copy(sphere.center).addScaledVector(direction, distance);
+    controls.maxDistance = Math.max(80, distance * 10);
+    camera.far = Math.max(1000, controls.maxDistance + sphere.radius * 2);
+    camera.updateProjectionMatrix();
+    controls.update();
+  };
+  if (restore3D) {
+    if (initialViewState.target) controls.target.copy(initialViewState.target);
+    const distance = camera.position.distanceTo(controls.target);
+    controls.maxDistance = Math.max(80, distance * 10);
+    camera.far = Math.max(1000, controls.maxDistance + sphere.radius * 2);
+    camera.updateProjectionMatrix();
+  } else {
+    autoFitDirection = new THREE.Vector3(13, 11, 0).normalize();
+    fitView(autoFitDirection);
+  }
   controls.update();
+  controls.addEventListener("start", () => { autoFitDirection = null; });
 
   scene.add(new THREE.AmbientLight(theme.textColor, 1.5));
   const keyLight = new THREE.DirectionalLight(theme.mainColor, 2);
@@ -477,6 +607,7 @@ export function createCommitGraph(container, payload, theme, onSelect, onHover, 
     camera.aspect = nextWidth / nextHeight;
     camera.updateProjectionMatrix();
     renderer.setSize(nextWidth, nextHeight);
+    if (autoFitDirection) fitView(autoFitDirection);
     renderVisibleScene();
   };
   window.addEventListener("resize", resize);
@@ -512,6 +643,13 @@ export function createCommitGraph(container, payload, theme, onSelect, onHover, 
     position: camera.position.clone(),
     quaternion: camera.quaternion.clone(),
     target: controls.target.clone(),
+    up: camera.up.clone(),
   });
+  disposeFn.setTopView = () => {
+    autoFitDirection = camera.up.z === 1
+      ? new THREE.Vector3(0, -0.000001, 1).normalize()
+      : new THREE.Vector3(0, 0, 1);
+    fitView(autoFitDirection);
+  };
   return disposeFn;
 }
