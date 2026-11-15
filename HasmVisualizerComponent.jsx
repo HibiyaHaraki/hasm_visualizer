@@ -180,6 +180,7 @@ export function HasmVisualizerComponent({
   // the 2D FACT table, so the table rows stay aligned with the graph lanes.
   const [layoutPayload, setLayoutPayload] = useState(null);
   const [renderedModel, setRenderedModel] = useState(null);
+  const relationshipModel = renderedModel || layoutModel;
   const [renderedZScale, setRenderedZScale] = useState(filter.zScaleFactor);
   const [renderedTimeScale, setRenderedTimeScale] = useState(filter.timeScaleMode);
   const isTimeAxis2D = renderedTimeScale !== 'SequentialIndex';
@@ -301,9 +302,9 @@ export function HasmVisualizerComponent({
     if (!renderPayload) return null;
     return {
       entityColors: buildEntityColors(themeColors),
-      ...buildExperienceColorMaps(renderPayload, themeColors),
+      ...buildExperienceColorMaps(renderPayload, themeColors, relationshipModel),
     };
-  }, [renderPayload, colorPattern]);
+  }, [renderPayload, colorPattern, relationshipModel]);
   const resolvedFactDates = useMemo(() => {
     if (factDatesById) return factDatesById;
     const map = new Map();
@@ -401,6 +402,7 @@ export function HasmVisualizerComponent({
               timeScaleMode: renderedTimeScale,
               timeLabel: labels?.factTime || 'Time',
             },
+            relationshipModel,
           );
           // Keep the rebuilt graph at the FACT table's current shared scroll offset.
           if (!isTimeAxis2D) syncScrollTop2D(scrollTop2DRef.current);
@@ -420,6 +422,7 @@ export function HasmVisualizerComponent({
             resolvedFactDates,
             viewStateByModeRef.current[viewMode],
             handleThreeError,
+            relationshipModel,
           );
           if (active) setIs3DReady(typeof disposeSceneRef.current.setTopView === 'function');
         }
@@ -453,7 +456,7 @@ export function HasmVisualizerComponent({
       }
       disposeSceneRef.current();
     };
-  }, [renderPayload, viewMode, colorPattern, handleSelectNode, resolvedFactDates, rendererFallbackMessage, renderingFailedMessage, rowHeightPx, renderedTimeScale, labels?.factTime]);
+  }, [renderPayload, viewMode, colorPattern, handleSelectNode, resolvedFactDates, rendererFallbackMessage, renderingFailedMessage, rowHeightPx, renderedTimeScale, labels?.factTime, relationshipModel]);
 
   const scopeSummary = isEmptyScope(scope)
     ? `${totalEntityCount} entities`
@@ -744,7 +747,8 @@ export function HasmVisualizerComponent({
           </div>
         ) : viewMode === 'distribution' ? (
           renderPayload && renderedModel && <ExperienceDistribution
-            payload={renderPayload} model={renderedModel} theme={themeColors} onSelect={handleSelectNode}
+            payload={renderPayload} model={renderedModel}
+            theme={themeColors} onSelect={handleSelectNode}
             onHover={(node, event) => setHoveredNode(node ? { ...node, screenX: event.clientX, screenY: event.clientY } : null)} />
         ) : (
           <div className="graph-canvas HasmVisualizer_Canvas" ref={sceneRef} />

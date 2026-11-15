@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { createLinkGeometryResolver, linkHighlightIds } from "./linkGeometry.js";
+import { buildExperienceRelationshipGraph } from "./relationshipGraph.js";
 
 function hexToRgb(hexColor) {
   const hex = String(hexColor).replace("#", "");
@@ -54,8 +55,6 @@ export function buildEntityColors(theme) {
   };
 }
 
-const GOLDEN_ANGLE_DEGREES = 137.508;
-
 function hslToHex(hue, saturationPercent, lightnessPercent) {
   const s = saturationPercent / 100;
   const l = lightnessPercent / 100;
@@ -72,25 +71,48 @@ function positionKey(x, y) {
 }
 export { positionKey };
 
-// Spreads each EXPERIENCE around the hue wheel by the golden angle (hue_i = i * 137.508 deg mod 360), which
-// keeps adjacent branches maximally distinguishable no matter how many EXPERIENCEs exist. FACT commits on a given
-// EXPERIENCE reuse that same hue but blend toward the theme's text color, so they read as a related, lighter
-// tint of their own branch rather than an identical or unrelated color.
-// Shared with the 2D renderer so both modes display identical EXPERIENCE/FACT colors.
-export function buildExperienceColorMaps(payload, theme) {
+function visibleExperienceIds(payload) {
+  return new Set((payload.nodes3d || [])
+    .filter((node) => node.entityType === "EXPERIENCE")
+    .map((node) => String(node.id)));
+}
+
+function visibleFactIds(payload) {
+  return new Set((payload.nodes3d || [])
+    .filter((node) => node.entityType === "FACT")
+    .map((node) => String(node.id)));
+}
+
+// [REQ-03-RULE-009] Each visible EXPERIENCE receives one of N evenly spaced hues, ordered by
+// relationship degree so highly connected entities occupy neighboring color slots.
+export function buildExperienceColorMaps(payload, theme, model = {}) {
   const background = theme.textBackgroundColor;
   const trunkColorByPositionKey = new Map();
+  const trunkColorByEntityId = new Map();
   const factColorByPositionKey = new Map();
-  payload.nodes3d.filter((node) => node.entityType === "EXPERIENCE").forEach((node, index) => {
-    const hue = (index * GOLDEN_ANGLE_DEGREES) % 360;
-    const baseColor = hslToHex(hue, 58, 42);
-    const trunkColor = ensureReadableColor(mixHex(baseColor, theme.mainColor, 0.25), background);
+  const visibleExperienceIdsForGraph = visibleExperienceIds(payload);
+  const { relationshipCountByExperienceId } = buildExperienceRelationshipGraph(
+    model,
+    { experienceIds: visibleExperienceIdsForGraph, factIds: visibleFactIds(payload) },
+  );
+  const rankedExperienceIds = [...visibleExperienceIdsForGraph].sort((firstId, secondId) => (
+    (relationshipCountByExperienceId.get(secondId) || 0) - (relationshipCountByExperienceId.get(firstId) || 0)
+    || firstId.localeCompare(secondId)
+  ));
+  const hueIndexById = new Map(rankedExperienceIds.map((id, index) => [id, index]));
+  const hueStep = rankedExperienceIds.length > 0 ? 360 / rankedExperienceIds.length : 0;
+  (payload.nodes3d || []).filter((node) => node.entityType === "EXPERIENCE").forEach((node) => {
+    const id = String(node.id);
+    const hue = (hueIndexById.get(id) || 0) * hueStep;
+    const baseColor = hslToHex(hue, 72, 42);
+    const trunkColor = ensureReadableColor(baseColor, background);
     const factColor = ensureReadableColor(mixHex(baseColor, theme.textColor, 0.4), background);
     const key = positionKey(node.x, node.y);
     trunkColorByPositionKey.set(key, trunkColor);
+    trunkColorByEntityId.set(id, trunkColor);
     factColorByPositionKey.set(key, factColor);
   });
-  return { trunkColorByPositionKey, factColorByPositionKey };
+  return { trunkColorByPositionKey, trunkColorByEntityId, factColorByPositionKey };
 }
 
 // Number of Z-axis tick labels drawn at most. Each label is a canvas-backed sprite, so a package
@@ -220,13 +242,13 @@ function graphBounds(payload) {
   return bounds;
 }
 
-export function createCommitGraph(container, payload, theme, onSelect, onHover, factDatesById, initialViewState, onError) {
+export function createCommitGraph(container, payload, theme, onSelect, onHover, factDatesById, initialViewState, onError, relationshipModel = {}) {
   const width = Math.max(container.clientWidth, 1);
   const height = Math.max(container.clientHeight, 1);
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(theme.textBackgroundColor);
   const entityColors = buildEntityColors(theme);
-  const { trunkColorByPositionKey, factColorByPositionKey } = buildExperienceColorMaps(payload, theme);
+  const { trunkColorByPositionKey, factColorByPositionKey } = buildExperienceColorMaps(payload, theme, relationshipModel);
 
   const camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 1000);
   const bounds = graphBounds(payload);

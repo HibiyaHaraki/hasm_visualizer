@@ -2,6 +2,7 @@
 // `calculate_layout` implementation in src-tauri/src/hasm/visualizer_commands.rs.
 // Used wherever a Tauri backend isn't available (e.g. a plain web build).
 import { experienceIdOf, factIdOf, linkIdOf, personIdOf } from "./modelScope.js";
+import { buildExperienceRelationshipGraph } from "./relationshipGraph.js";
 
 export function computeVisualizerLayoutJS(model, filter) {
   const timeScaleMode = filter?.timeScaleMode || "Linear";
@@ -13,7 +14,7 @@ export function computeVisualizerLayoutJS(model, filter) {
   const experienceFactZs = new Map();
 
   const experiences = model?.experiences || [];
-  const branchPositions = calculateBranchPositions(experiences);
+  const branchPositions = calculateBranchPositions(model);
   experiences.forEach((experience) => {
     const id = experienceIdOf(experience);
     const [x, y] = branchPositions.get(id) || [0.0, 0.0];
@@ -176,58 +177,68 @@ function timeKey(value) {
   return year * 372 + month * 31 + day;
 }
 
-function calculateBranchPositions(experiences) {
+function calculateBranchPositions(model) {
   const generationGap = 6.0;
   const siblingGap = 4.0;
+  const experiences = model?.experiences || [];
+  const experiencesById = new Map(experiences.map((experience) => [experienceIdOf(experience), experience]));
+  const experienceIds = [...experiencesById.keys()].sort();
+  const { relationshipCountByExperienceId, adjacencyByExperienceId } = buildExperienceRelationshipGraph(model);
   const depths = new Map();
-
-  experiences.forEach((experience) => {
-    experienceDepth(experienceIdOf(experience), experiences, depths, new Set());
-  });
-
-  const orderedExperiences = [...experiences].sort((left, right) => {
-    const leftId = experienceIdOf(left);
-    const rightId = experienceIdOf(right);
-    return (depths.get(leftId) || 0) - (depths.get(rightId) || 0);
-  });
+  experienceIds.forEach((id) => experienceDepth(id, experiencesById, depths, new Set()));
+  const orderedIds = [...experienceIds].sort((firstId, secondId) => (
+    (depths.get(firstId) || 0) - (depths.get(secondId) || 0) || firstId.localeCompare(secondId)
+  ));
   const positions = new Map();
-  const lanesByDepth = new Map();
-
-  orderedExperiences.forEach((experience) => {
-    const id = experienceIdOf(experience);
-    const depth = depths.get(id) || 0;
-    const parents = experience.parent_experience_ids || experience.parentExperienceIds || [];
-    const parentLanes = parents
-      .map((parentId) => positions.get(String(parentId)))
-      .filter(Boolean)
-      .map((position) => position[1]);
-    const parentCenter = parentLanes.length > 0
-      ? parentLanes.reduce((total, lane) => total + lane, 0) / parentLanes.length
-      : 0.0;
-    const siblingExperiences = experiences.filter((candidate) => {
-      const candidateParents = candidate.parent_experience_ids || candidate.parentExperienceIds || [];
-      return candidateParents.some((parentId) => parents.map(String).includes(String(parentId)));
+  const connectionWeightById = new Map(experienceIds.map((id) => [id, 0]));
+  let layerStart = 0;
+  while (layerStart < orderedIds.length) {
+    const depth = depths.get(orderedIds[layerStart]) || 0;
+    let layerEnd = layerStart + 1;
+    while (layerEnd < orderedIds.length && (depths.get(orderedIds[layerEnd]) || 0) === depth) layerEnd += 1;
+    const remaining = orderedIds.slice(layerStart, layerEnd);
+    const layerOrder = [];
+    while (remaining.length > 0) {
+      let selectedIndex = 0;
+      for (let candidateIndex = 1; candidateIndex < remaining.length; candidateIndex += 1) {
+        const candidateId = remaining[candidateIndex];
+        const selectedId = remaining[selectedIndex];
+        const candidateConnection = connectionWeightById.get(candidateId) || 0;
+        const selectedConnection = connectionWeightById.get(selectedId) || 0;
+        const candidateDegree = relationshipCountByExperienceId.get(candidateId) || 0;
+        const selectedDegree = relationshipCountByExperienceId.get(selectedId) || 0;
+        if (candidateConnection > selectedConnection
+          || (candidateConnection === selectedConnection && candidateDegree > selectedDegree)
+          || (candidateConnection === selectedConnection && candidateDegree === selectedDegree
+            && candidateId.localeCompare(selectedId) < 0)) {
+          selectedIndex = candidateIndex;
+        }
+      }
+      const [selectedId] = remaining.splice(selectedIndex, 1);
+      layerOrder.push(selectedId);
+      (adjacencyByExperienceId.get(selectedId) || new Map()).forEach((weight, neighborId) => {
+        connectionWeightById.set(neighborId, (connectionWeightById.get(neighborId) || 0) + weight);
+      });
+    }
+    layerOrder.forEach((id, index) => {
+      const y = (index - ((layerOrder.length - 1) / 2)) * siblingGap;
+      positions.set(id, [depth * generationGap, y]);
     });
-    const siblingIndex = Math.max(0, siblingExperiences.findIndex((candidate) => experienceIdOf(candidate) === id));
-    const desiredY = parentCenter + (siblingIndex - (Math.max(0, siblingExperiences.length - 1) / 2.0)) * siblingGap;
-    const occupiedLanes = lanesByDepth.get(depth) || [];
-    const y = nearestAvailableLane(desiredY, occupiedLanes, siblingGap);
-    lanesByDepth.set(depth, occupiedLanes);
-    positions.set(id, [depth * generationGap, y]);
-  });
+    layerStart = layerEnd;
+  }
 
   return positions;
 }
 
-function experienceDepth(experienceId, experiences, depths, visiting) {
+function experienceDepth(experienceId, experiencesById, depths, visiting) {
   if (depths.has(experienceId)) return depths.get(experienceId);
   if (visiting.has(experienceId)) return 0;
   visiting.add(experienceId);
-  const experience = experiences.find((candidate) => experienceIdOf(candidate) === experienceId);
+  const experience = experiencesById.get(experienceId);
   const parents = experience?.parent_experience_ids || experience?.parentExperienceIds || [];
-  const depth = experience
-    ? parents.reduce((maximum, parentId) => Math.max(maximum, experienceDepth(String(parentId), experiences, depths, visiting) + 1), 0)
-    : 0;
+  let depth = 0;
+  parents.map(String).filter((parentId) => parentId !== experienceId && experiencesById.has(parentId))
+    .forEach((parentId) => { depth = Math.max(depth, experienceDepth(parentId, experiencesById, depths, visiting) + 1); });
   visiting.delete(experienceId);
   depths.set(experienceId, depth);
   return depth;
@@ -239,19 +250,6 @@ function collectExperienceAndAncestors(experienceId, experiences, collected) {
   const experience = experiences.find((candidate) => experienceIdOf(candidate) === experienceId);
   const parents = experience?.parent_experience_ids || experience?.parentExperienceIds || [];
   parents.forEach((parentId) => collectExperienceAndAncestors(String(parentId), experiences, collected));
-}
-
-function nearestAvailableLane(desiredY, occupiedLanes, gap) {
-  for (let step = 0; step <= occupiedLanes.length; step += 1) {
-    const offset = step * gap;
-    for (const candidate of [desiredY + offset, desiredY - offset]) {
-      if (occupiedLanes.every((lane) => Math.abs(candidate - lane) >= gap)) {
-        occupiedLanes.push(candidate);
-        return candidate;
-      }
-    }
-  }
-  throw new Error("Unable to find an available EXPERIENCE lane");
 }
 
 function factZ(mode, index, time, earliestTime, zStepVal) {

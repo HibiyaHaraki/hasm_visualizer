@@ -69,9 +69,9 @@ function distributionGeometry(payload, model) {
 export default function ExperienceDistribution({ payload, model, theme, onSelect, onHover }) {
   const { nodes, parents, links } = useMemo(() => distributionGeometry(payload, model), [payload, model]);
   const { colors, linkColor } = useMemo(() => ({
-    colors: buildExperienceColorMaps(payload, theme).trunkColorByPositionKey,
+    colors: buildExperienceColorMaps(payload, theme, model).trunkColorByPositionKey,
     linkColor: buildEntityColors(theme).LINK,
-  }), [payload, theme]);
+  }), [payload, theme, model]);
   const { labels, viewBox } = useMemo(() => {
     const labelBounds = [];
     const labels = nodes.map((node) => {

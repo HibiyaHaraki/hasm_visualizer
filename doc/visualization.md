@@ -21,8 +21,22 @@ Each recursively reflected FACT retains the original FACT ID and timestamp.
 Reflections are not additional events. A FACT without an EXPERIENCE uses the
 fallback lane. PERSON-related LINKs are not drawn.
 
-Colors derive from the supplied HASM theme, with readable contrast and a
-distinct hue per EXPERIENCE. Direct and reflected FACTs use their lane's hue.
+Colors derive from the supplied HASM theme and the active rendered model's
+visible relationships: parent/child edges, EXPERIENCE-to-EXPERIENCE LINK pairs,
+direct FACT membership, and FACT-to-FACT LINK pairs attributed to their visible
+EXPERIENCEs. Off-scope and render-budget-excluded entities do not contribute.
+Each visible EXPERIENCE receives one hue from the full color wheel. EXPERIENCEs
+are ranked by descending visible relationship count, with UUID as the stable
+tie-breaker, then assigned evenly spaced hues. This places highly related
+branches near one another without compressing the palette. The shared color map
+is used by 2D, 3D, distribution, and detail graphs so an entity and its
+references match within the graph. Direct and reflected FACTs use their lane's
+hue with readable contrast.
+
+The X coordinate remains six units per parent depth. Within each depth,
+relationship-weighted adjacency determines deterministic lane order: parent
+edges have weight four, EXPERIENCE LINK pairs weight three, and shared FACT
+relationships weight one. Y lanes are centered at four-unit intervals.
 3D time coordinates follow the selected time scale and Z scale. 2D SequentialIndex
 keeps equally spaced, newest-first FACT rows and its FACT/Time table; Z scale changes
 row height. Linear/Logarithmic hide the table and project layout time coordinates
