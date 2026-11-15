@@ -21,22 +21,40 @@ Each recursively reflected FACT retains the original FACT ID and timestamp.
 Reflections are not additional events. A FACT without an EXPERIENCE uses the
 fallback lane. PERSON-related LINKs are not drawn.
 
-Colors derive from the supplied HASM theme and the active rendered model's
-visible relationships: parent/child edges, EXPERIENCE-to-EXPERIENCE LINK pairs,
-direct FACT membership, and FACT-to-FACT LINK pairs attributed to their visible
-EXPERIENCEs. Off-scope and render-budget-excluded entities do not contribute.
-Each visible EXPERIENCE receives one hue from the full color wheel. EXPERIENCEs
-are ranked by descending visible relationship count, with UUID as the stable
-tie-breaker, then assigned evenly spaced hues. This places highly related
-branches near one another without compressing the palette. The shared color map
-is used by 2D, 3D, distribution, and detail graphs so an entity and its
-references match within the graph. Direct and reflected FACTs use their lane's
-hue with readable contrast.
+Colors derive from the EXPERIENCE and FACT IDs in the rendered payload and the
+already scoped/budgeted model; off-scope and withheld entities do not contribute.
+Parent-connected EXPERIENCEs form lineage components ordered by their smallest
+UUID. Within each component, a deterministic breadth-first traversal starts at
+that UUID and visits visible relationship neighbors by descending accumulated
+weight, then UUID; unvisited IDs are appended in UUID order. For $N$ visible
+EXPERIENCEs and palette rank $r_i$, hue is $360°(r_i+\frac{1}{2})/N$, spreading
+the palette across the full color wheel and placing related neighbors at nearby
+palette positions. With visible relationship degree $d_i$ and maximum degree
+$d_{max}$, $c_i=\ln(1+d_i)/\ln(1+d_{max})$ (or zero when $d_{max}=0$);
+saturation is $55\%+30\%c_i$, and lightness is
+$70\%-16\%c_i-8\%$ of normalized hierarchy depth. HSL colors are converted to
+HEX and adjusted to WCAG AA contrast against the active background. FACT markers
+use their EXPERIENCE's HSL color blended 40% toward the theme text color, with
+the same contrast adjustment. The shared color maps serve 2D, 3D, distribution,
+detail graphs, and reference badges.
 
-The X coordinate remains six units per parent depth. Within each depth,
-relationship-weighted adjacency determines deterministic lane order: parent
-edges have weight four, EXPERIENCE LINK pairs weight three, and shared FACT
-relationships weight one. Y lanes are centered at four-unit intervals.
+The scope and FACT layout budgets are applied before computation in both 2D
+and 3D. A large unscoped model, or a selected scope retaining too many
+PERSON/EXPERIENCE/LINK records, requests a narrower scope without invoking the
+layout. When the FACT budget is exceeded, only the retained FACTs, their
+EXPERIENCE ancestors, required owner PERSONs, and fully contained LINKs enter
+layout; the FACT projection budget is enforced again before scene creation.
+Both steps report withheld FACTs.
+
+The X coordinate remains six units per parent depth. Each depth is ordered by
+six deterministic weighted-barycenter sweeps. Parent centroids bias children;
+parent/child edges have weight four, EXPERIENCE LINK pairs add weight three per
+LINK, and shared FACT relationships add weight one per relationship. The layer
+center is the mean parent centroid (or zero for a parentless layer). Adjacent
+EXPERIENCEs have a Y gap of $2+2/(1+\ln(1+w))$, where $w$ is their accumulated
+relationship weight; unrelated lanes stay four units apart and stronger
+relationships approach a two-unit minimum. Final Y positions preserve the
+layer's parent-centroid mean.
 3D time coordinates follow the selected time scale and Z scale. 2D SequentialIndex
 keeps equally spaced, newest-first FACT rows and its FACT/Time table; Z scale changes
 row height. Linear/Logarithmic hide the table and project layout time coordinates

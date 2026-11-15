@@ -169,12 +169,15 @@ export function HasmVisualizerComponent({
   const scopedModel = useMemo(() => scopeModel(activeModel, scope), [activeModel, scope]);
   const totalEntityCount = useMemo(() => countModelEntities(activeModel), [activeModel]);
   const scopedEntityCount = useMemo(() => countModelEntities(scopedModel), [scopedModel]);
-  const usesRenderBudget = viewMode === '2d';
+  const scopedNonFactEntityCount = (scopedModel?.people?.length || 0)
+    + (scopedModel?.experiences?.length || 0)
+    + (scopedModel?.links?.length || 0);
+  const needsScope = (isEmptyScope(scope) && totalEntityCount > scopePromptThreshold)
+    || (!isEmptyScope(scope) && scopedNonFactEntityCount > scopePromptThreshold);
   const { model: layoutModel, warning: layoutBudgetWarning } = useMemo(
-    () => (usesRenderBudget ? limitModelForLayout(scopedModel, maxRenderedNodes) : { model: scopedModel, warning: '' }),
-    [scopedModel, maxRenderedNodes, usesRenderBudget],
+    () => (needsScope ? { model: scopedModel, warning: '' } : limitModelForLayout(scopedModel, maxRenderedNodes)),
+    [scopedModel, maxRenderedNodes, needsScope],
   );
-  const needsScope = isEmptyScope(scope) && totalEntityCount > scopePromptThreshold;
 
   // Layout is computed once per model/filter/scope change and shared by the graph effect below and
   // the 2D FACT table, so the table rows stay aligned with the graph lanes.
@@ -219,11 +222,11 @@ export function HasmVisualizerComponent({
   const { payload: renderPayload, warning: budgetWarning } = useMemo(
     () => {
       if (!layoutPayload) return { payload: null, warning: '' };
-      const payload = usesRenderBudget && renderedTimeScale === 'SequentialIndex'
+      const payload = viewMode === '2d' && renderedTimeScale === 'SequentialIndex'
         ? deduplicateFactPlacements(layoutPayload) : layoutPayload;
-      return usesRenderBudget ? limitRenderedNodes(payload, maxRenderedNodes) : { payload, warning: '' };
+      return limitRenderedNodes(payload, maxRenderedNodes);
     },
-    [layoutPayload, maxRenderedNodes, usesRenderBudget, renderedTimeScale],
+    [layoutPayload, maxRenderedNodes, renderedTimeScale, viewMode],
   );
   const combinedBudgetWarning = [layoutBudgetWarning, budgetWarning].filter(Boolean).join(' ');
 
@@ -694,7 +697,9 @@ export function HasmVisualizerComponent({
         {needsScope ? (
           <p className="HasmVisualizer_ScopePrompt">
             {labels?.scopePrompt
-              || `This package holds ${totalEntityCount} entities. Select a PERSON or EXPERIENCE scope above to visualize part of it.`}
+              || (isEmptyScope(scope)
+                ? `This package holds ${totalEntityCount} entities. Select a PERSON or EXPERIENCE scope above to visualize part of it.`
+                : `This scope contains ${scopedNonFactEntityCount} PERSON, EXPERIENCE, and LINK records. Narrow it to visualize this graph.`)}
           </p>
         ) : viewMode === '2d' ? (
           <div className="HasmVisualizer_Split2D" style={{ '--HasmVisualizer-row-height': `${rowHeightPx}px` }}>

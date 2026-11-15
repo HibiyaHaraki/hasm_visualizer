@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { createLinkGeometryResolver, linkHighlightIds } from "./linkGeometry.js";
-import { buildExperienceRelationshipGraph } from "./relationshipGraph.js";
+import { buildExperienceHierarchy, buildExperienceRelationshipGraph } from "./relationshipGraph.js";
 
 function hexToRgb(hexColor) {
   const hex = String(hexColor).replace("#", "");
@@ -83,28 +83,78 @@ function visibleFactIds(payload) {
     .map((node) => String(node.id)));
 }
 
-// [REQ-03-RULE-009] Each visible EXPERIENCE receives one of N evenly spaced hues, ordered by
-// relationship degree so highly connected entities occupy neighboring color slots.
+function orderLineageExperienceIds(lineageId, lineageExperienceIds, lineageIdByExperienceId, adjacencyByExperienceId) {
+  const orderedIds = [];
+  const queuedIds = new Set([lineageId]);
+  const pendingIds = [lineageId];
+  for (let cursor = 0; cursor < pendingIds.length; cursor += 1) {
+    const id = pendingIds[cursor];
+    orderedIds.push(id);
+    const neighbors = [...(adjacencyByExperienceId.get(id) || new Map()).entries()]
+      .filter(([neighborId]) => lineageIdByExperienceId.get(neighborId) === lineageId
+        && !queuedIds.has(neighborId))
+      .sort((first, second) => second[1] - first[1] || first[0].localeCompare(second[0]));
+    neighbors.forEach(([neighborId]) => {
+      queuedIds.add(neighborId);
+      pendingIds.push(neighborId);
+    });
+  }
+  lineageExperienceIds.forEach((id) => {
+    if (!queuedIds.has(id)) orderedIds.push(id);
+  });
+  return orderedIds;
+}
+
+// [REQ-03-RULE-009] Visible parent-connected lineages occupy contiguous portions of a full-wheel
+// palette; weighted relationship neighbors receive nearby hues, while density and depth adjust tone.
 export function buildExperienceColorMaps(payload, theme, model = {}) {
   const background = theme.textBackgroundColor;
   const trunkColorByPositionKey = new Map();
   const trunkColorByEntityId = new Map();
   const factColorByPositionKey = new Map();
   const visibleExperienceIdsForGraph = visibleExperienceIds(payload);
-  const { relationshipCountByExperienceId } = buildExperienceRelationshipGraph(
+  const { relationshipCountByExperienceId, adjacencyByExperienceId } = buildExperienceRelationshipGraph(
     model,
     { experienceIds: visibleExperienceIdsForGraph, factIds: visibleFactIds(payload) },
   );
-  const rankedExperienceIds = [...visibleExperienceIdsForGraph].sort((firstId, secondId) => (
-    (relationshipCountByExperienceId.get(secondId) || 0) - (relationshipCountByExperienceId.get(firstId) || 0)
-    || firstId.localeCompare(secondId)
+  const { depthByExperienceId, lineageIdByExperienceId } = buildExperienceHierarchy(
+    model,
+    visibleExperienceIdsForGraph,
+  );
+  const experienceIdsByLineageId = new Map();
+  lineageIdByExperienceId.forEach((lineageId, id) => {
+    const ids = experienceIdsByLineageId.get(lineageId) || [];
+    ids.push(id);
+    experienceIdsByLineageId.set(lineageId, ids);
+  });
+  const lineageIds = [...experienceIdsByLineageId.keys()].sort();
+  const orderedExperienceIds = lineageIds.flatMap((lineageId) => (
+    orderLineageExperienceIds(
+      lineageId,
+      experienceIdsByLineageId.get(lineageId).sort(),
+      lineageIdByExperienceId,
+      adjacencyByExperienceId,
+    )
   ));
-  const hueIndexById = new Map(rankedExperienceIds.map((id, index) => [id, index]));
-  const hueStep = rankedExperienceIds.length > 0 ? 360 / rankedExperienceIds.length : 0;
+  const hueByExperienceId = new Map(orderedExperienceIds.map((id, index) => [
+    id,
+    (360 * (index + 0.5)) / Math.max(orderedExperienceIds.length, 1),
+  ]));
+  const maxRelationshipCount = [...relationshipCountByExperienceId.values()]
+    .reduce((maximum, count) => Math.max(maximum, count), 0);
+  const maxDepth = [...depthByExperienceId.values()]
+    .reduce((maximum, depth) => Math.max(maximum, depth), 0);
   (payload.nodes3d || []).filter((node) => node.entityType === "EXPERIENCE").forEach((node) => {
     const id = String(node.id);
-    const hue = (hueIndexById.get(id) || 0) * hueStep;
-    const baseColor = hslToHex(hue, 72, 42);
+    const density = maxRelationshipCount
+      ? Math.log1p(relationshipCountByExperienceId.get(id) || 0) / Math.log1p(maxRelationshipCount)
+      : 0;
+    const depth = depthByExperienceId.get(id) || 0;
+    const depthRatio = maxDepth ? depth / maxDepth : 0;
+    const hue = hueByExperienceId.get(id) || 0;
+    const saturation = 55 + (30 * density);
+    const lightness = 70 - (16 * density) - (8 * depthRatio);
+    const baseColor = hslToHex(hue, saturation, lightness);
     const trunkColor = ensureReadableColor(baseColor, background);
     const factColor = ensureReadableColor(mixHex(baseColor, theme.textColor, 0.4), background);
     const key = positionKey(node.x, node.y);

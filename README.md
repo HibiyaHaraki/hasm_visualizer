@@ -81,8 +81,8 @@ Driving a host application's own package, with layout computed by a backend:
 | `onSelectNode` | `null` | Called on node click. When supplied, the built-in node inspector is suppressed. |
 | `getNodeHref` | `null` | Host-owned `(node) => href` for EXPERIENCE table badges. Badge activation uses `onSelectNode` with the EXPERIENCE node and view snapshot, without selecting the surrounding FACT row. |
 | `initialViewState` | `null` | Restores `{ filter, scope, viewMode, views }` on mount. `onSelectNode(node, viewState)` supplies the current snapshot, including per-mode scroll/camera state, for a host to carry through ticket navigation. No global/browser storage is used. |
-| `maxRenderedNodes` | `4000` | Render budget. Surplus FACT nodes are trimmed and a warning names how many were withheld. |
-| `scopePromptThreshold` | `2000` | Above this entity count an unscoped model is not laid out; a PERSON/EXPERIENCE selection is requested first. |
+| `maxRenderedNodes` | `1200` | FACT budget applied before layout in both views and again to rendered FACT projections; warnings name how many were withheld. |
+| `scopePromptThreshold` | `2000` | An oversized unscoped model, or a selected scope retaining more PERSON/EXPERIENCE/LINK records than this threshold, is not laid out until narrowed. |
 | `factDatesById` | derived | `Map<factId, date>` used for Z-axis tick labels. |
 | `headerSlot` / `toolbarSlot` / `overlaySlot` | `null` | Host chrome rendered above the toolbar, at the end of the toolbar, and over the graph stage. |
 
@@ -109,6 +109,8 @@ Scope selection narrows the **model** before layout rather than trimming geometr
 - The PERSON control is hidden when the package has fewer than two PERSONs; EXPERIENCE selection remains available.
 - PERSON selection sets the pool; EXPERIENCE selection narrows within it. EXPERIENCE entries that stop belonging to any selected PERSON are dropped automatically.
 - `scopeModel` keeps the selected EXPERIENCEs and their descendants, then adds ancestors for connectivity without expanding into siblings. FACTs follow the retained branches. PERSON-only FACTs are included only when no explicit EXPERIENCE selection is applied, so PERSON selection cannot override EXPERIENCE narrowing.
+- The scope and FACT budgets run before layout in both 2D and 3D. When the FACT budget is exceeded, only the retained FACTs, their EXPERIENCE ancestors, required owner PERSONs, and fully contained LINKs enter Rust or JavaScript layout.
+- After layout, the FACT projection budget is enforced before scene creation. Color maps use only IDs in the rendered payload and the already scoped/budgeted model; withheld and off-scope entities do not affect colors.
 - The EXPERIENCE option list is filtered by the PERSON selection.
 - Z-axis tick labels are sampled to at most 60 and their textures are cached; FACT markers share their geometries.
 
@@ -124,7 +126,7 @@ Scope selection narrows the **model** before layout rather than trimming geometr
 - SequentialIndex keeps newest-first, equally spaced rows. Z scale multiplies row height (30px at 1x) and matching SVG coordinates together. Linear/Logarithmic hide the table, show a date-labeled time Y-axis, and position simultaneous FACTs at the same Y using the layout's time coordinates. FACT names/dates are available on hover. These modes scroll in the graph and Z scale multiplies the timeline extent, preserving distance ratios. A failed layout retains the previous geometry, time mode, and scale. 3D behavior is unchanged.
 - PERSONs are used for ownership and scope selection, not rendered as graph nodes. PERSON-related LINKs are not drawn.
 - EXPERIENCE trunk tooltips in both views show the optional `personName` supplied by the layout, including any inherited owners. When absent, no owner line is displayed.
-- When the 2D FACT budget limits layout input, retained FACT branches include their ancestor EXPERIENCEs and owner PERSON context.
+- When the FACT budget limits layout input, retained FACT branches include their ancestor EXPERIENCEs and owner PERSON context in both 2D and 3D.
 - SequentialIndex discards accidental repeated FACT projections with the same UUID and EXPERIENCE position, preferring a direct projection over a reflected duplicate. Distinct direct placements and ancestor reflections remain visible, with one FACT title row per UUID.
 - FACT hover shows one EXPERIENCE badge resolved from the exact hovered marker's XY line, never the FACT's complete EXPERIENCE list. The SequentialIndex title table shows the representative direct EXPERIENCE badge before the FACT title on the same line, separated by a space (falling back to a reflected branch when no direct projection survived). Badges use the branch color and a contrast-safe foreground; hosts can reuse `ExperienceBadge.jsx` with `inline` for compact detail table rows.
 - The SequentialIndex table uses the EXPERIENCE name badge instead of a redundant color-only dot. Graph FACT circles remain unchanged.

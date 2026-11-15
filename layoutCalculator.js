@@ -2,7 +2,11 @@
 // `calculate_layout` implementation in src-tauri/src/hasm/visualizer_commands.rs.
 // Used wherever a Tauri backend isn't available (e.g. a plain web build).
 import { experienceIdOf, factIdOf, linkIdOf, personIdOf } from "./modelScope.js";
-import { buildExperienceRelationshipGraph } from "./relationshipGraph.js";
+import {
+  buildExperienceHierarchy,
+  buildExperienceRelationshipGraph,
+  RELATIONSHIP_POSITION_WEIGHT,
+} from "./relationshipGraph.js";
 
 export function computeVisualizerLayoutJS(model, filter) {
   const timeScaleMode = filter?.timeScaleMode || "Linear";
@@ -179,69 +183,97 @@ function timeKey(value) {
 
 function calculateBranchPositions(model) {
   const generationGap = 6.0;
-  const siblingGap = 4.0;
+  const baseLaneGap = 4.0;
+  const minLaneGap = 2.0;
+  const barycenterSweeps = 6;
   const experiences = model?.experiences || [];
-  const experiencesById = new Map(experiences.map((experience) => [experienceIdOf(experience), experience]));
-  const experienceIds = [...experiencesById.keys()].sort();
-  const { relationshipCountByExperienceId, adjacencyByExperienceId } = buildExperienceRelationshipGraph(model);
-  const depths = new Map();
-  experienceIds.forEach((id) => experienceDepth(id, experiencesById, depths, new Set()));
+  const experienceIds = [...new Set(experiences.map(experienceIdOf).filter(Boolean))].sort();
+  const { adjacencyByExperienceId } = buildExperienceRelationshipGraph(model);
+  const { depthByExperienceId, parentIdsByExperienceId } = buildExperienceHierarchy(model);
   const orderedIds = [...experienceIds].sort((firstId, secondId) => (
-    (depths.get(firstId) || 0) - (depths.get(secondId) || 0) || firstId.localeCompare(secondId)
+    (depthByExperienceId.get(firstId) || 0) - (depthByExperienceId.get(secondId) || 0)
+    || firstId.localeCompare(secondId)
   ));
   const positions = new Map();
-  const connectionWeightById = new Map(experienceIds.map((id) => [id, 0]));
   let layerStart = 0;
   while (layerStart < orderedIds.length) {
-    const depth = depths.get(orderedIds[layerStart]) || 0;
+    const depth = depthByExperienceId.get(orderedIds[layerStart]) || 0;
     let layerEnd = layerStart + 1;
-    while (layerEnd < orderedIds.length && (depths.get(orderedIds[layerEnd]) || 0) === depth) layerEnd += 1;
-    const remaining = orderedIds.slice(layerStart, layerEnd);
-    const layerOrder = [];
-    while (remaining.length > 0) {
-      let selectedIndex = 0;
-      for (let candidateIndex = 1; candidateIndex < remaining.length; candidateIndex += 1) {
-        const candidateId = remaining[candidateIndex];
-        const selectedId = remaining[selectedIndex];
-        const candidateConnection = connectionWeightById.get(candidateId) || 0;
-        const selectedConnection = connectionWeightById.get(selectedId) || 0;
-        const candidateDegree = relationshipCountByExperienceId.get(candidateId) || 0;
-        const selectedDegree = relationshipCountByExperienceId.get(selectedId) || 0;
-        if (candidateConnection > selectedConnection
-          || (candidateConnection === selectedConnection && candidateDegree > selectedDegree)
-          || (candidateConnection === selectedConnection && candidateDegree === selectedDegree
-            && candidateId.localeCompare(selectedId) < 0)) {
-          selectedIndex = candidateIndex;
-        }
-      }
-      const [selectedId] = remaining.splice(selectedIndex, 1);
-      layerOrder.push(selectedId);
-      (adjacencyByExperienceId.get(selectedId) || new Map()).forEach((weight, neighborId) => {
-        connectionWeightById.set(neighborId, (connectionWeightById.get(neighborId) || 0) + weight);
-      });
-    }
-    layerOrder.forEach((id, index) => {
-      const y = (index - ((layerOrder.length - 1) / 2)) * siblingGap;
+    while (layerEnd < orderedIds.length
+      && (depthByExperienceId.get(orderedIds[layerEnd]) || 0) === depth) layerEnd += 1;
+    const layerOrder = orderedIds.slice(layerStart, layerEnd);
+    const parentCenter = (id) => {
+      const parentYs = (parentIdsByExperienceId.get(id) || [])
+        .map((parentId) => positions.get(parentId)?.[1])
+        .filter(Number.isFinite);
+      return parentYs.length ? parentYs.reduce((sum, y) => sum + y, 0) / parentYs.length : null;
+    };
+    const parentCenters = layerOrder.map(parentCenter).filter(Number.isFinite);
+    const layerCenter = parentCenters.length
+      ? parentCenters.reduce((sum, y) => sum + y, 0) / parentCenters.length
+      : 0;
+    layerOrder.sort((firstId, secondId) => (
+      (parentCenter(firstId) ?? layerCenter) - (parentCenter(secondId) ?? layerCenter)
+      || firstId.localeCompare(secondId)
+    ));
+
+    const assignUniformLanes = () => layerOrder.forEach((id, index) => {
+      const y = layerCenter + (index - ((layerOrder.length - 1) / 2)) * baseLaneGap;
       positions.set(id, [depth * generationGap, y]);
+    });
+    assignUniformLanes();
+
+    for (let sweep = 0; sweep < barycenterSweeps; sweep += 1) {
+      const scoreById = new Map();
+      layerOrder.forEach((id) => {
+        const parents = new Set(parentIdsByExperienceId.get(id) || []);
+        let weightedY = 0;
+        let totalWeight = 0;
+        parents.forEach((parentId) => {
+          const parentPosition = positions.get(parentId);
+          if (!parentPosition) return;
+          weightedY += RELATIONSHIP_POSITION_WEIGHT.PARENT_CHILD * parentPosition[1];
+          totalWeight += RELATIONSHIP_POSITION_WEIGHT.PARENT_CHILD;
+        });
+        const neighbors = adjacencyByExperienceId.get(id) || new Map();
+        [...neighbors.keys()].sort().forEach((neighborId) => {
+          const neighborPosition = positions.get(neighborId);
+          if (!neighborPosition) return;
+          const weight = Math.max(0, neighbors.get(neighborId)
+            - (parents.has(neighborId) ? RELATIONSHIP_POSITION_WEIGHT.PARENT_CHILD : 0));
+          weightedY += weight * neighborPosition[1];
+          totalWeight += weight;
+        });
+        scoreById.set(id, totalWeight ? weightedY / totalWeight : positions.get(id)[1]);
+      });
+      layerOrder.sort((firstId, secondId) => (
+        scoreById.get(firstId) - scoreById.get(secondId) || firstId.localeCompare(secondId)
+      ));
+      assignUniformLanes();
+    }
+
+    const laneOffsets = [0];
+    const laneGaps = [];
+    let totalExtent = 0;
+    for (let index = 0; index < layerOrder.length - 1; index += 1) {
+      const firstId = layerOrder[index];
+      const secondId = layerOrder[index + 1];
+      const weight = adjacencyByExperienceId.get(firstId)?.get(secondId) || 0;
+      const gap = minLaneGap + ((baseLaneGap - minLaneGap) / (1 + Math.log1p(weight)));
+      laneGaps.push(gap);
+      totalExtent += gap;
+      laneOffsets.push(totalExtent);
+    }
+    const meanOffset = laneOffsets.reduce((sum, offset) => sum + offset, 0) / laneOffsets.length;
+    let y = layerCenter - meanOffset;
+    layerOrder.forEach((id, index) => {
+      positions.set(id, [depth * generationGap, y]);
+      y += laneGaps[index] || 0;
     });
     layerStart = layerEnd;
   }
 
   return positions;
-}
-
-function experienceDepth(experienceId, experiencesById, depths, visiting) {
-  if (depths.has(experienceId)) return depths.get(experienceId);
-  if (visiting.has(experienceId)) return 0;
-  visiting.add(experienceId);
-  const experience = experiencesById.get(experienceId);
-  const parents = experience?.parent_experience_ids || experience?.parentExperienceIds || [];
-  let depth = 0;
-  parents.map(String).filter((parentId) => parentId !== experienceId && experiencesById.has(parentId))
-    .forEach((parentId) => { depth = Math.max(depth, experienceDepth(parentId, experiencesById, depths, visiting) + 1); });
-  visiting.delete(experienceId);
-  depths.set(experienceId, depth);
-  return depth;
 }
 
 function collectExperienceAndAncestors(experienceId, experiences, collected) {

@@ -132,3 +132,63 @@ export function buildExperienceRelationshipGraph(model, visible = null) {
 
   return { relationshipCountByExperienceId, adjacencyByExperienceId };
 }
+
+// [REQ-03-RULE-007] [REQ-03-RULE-009] Builds visible hierarchy depth and lineage grouping.
+export function buildExperienceHierarchy(model, visibleExperienceIds = null) {
+  const source = Array.isArray(model) ? { experiences: model } : model || {};
+  const experiencesById = new Map((source.experiences || [])
+    .map((experience) => [experienceIdOf(experience), experience])
+    .filter(([id]) => id));
+  const experienceIds = (visibleExperienceIds
+    ? [...visibleExperienceIds].map(String)
+    : [...experiencesById.keys()])
+    .sort();
+  const experienceIdSet = new Set(experienceIds);
+  const parentIdsByExperienceId = new Map(experienceIds.map((id) => {
+    const experience = experiencesById.get(id);
+    const parentIds = experience
+      ? relatedIds(experience, "parent_experience_ids", "parentExperienceIds")
+        .filter((parentId) => parentId !== id && experienceIdSet.has(parentId))
+        .sort()
+      : [];
+    return [id, parentIds];
+  }));
+  const depthByExperienceId = new Map();
+  const depthOf = (id, visiting) => {
+    if (depthByExperienceId.has(id)) return depthByExperienceId.get(id);
+    if (visiting.has(id)) return 0;
+    visiting.add(id);
+    let depth = 0;
+    (parentIdsByExperienceId.get(id) || []).forEach((parentId) => {
+      depth = Math.max(depth, depthOf(parentId, visiting) + 1);
+    });
+    visiting.delete(id);
+    depthByExperienceId.set(id, depth);
+    return depth;
+  };
+  experienceIds.forEach((id) => depthOf(id, new Set()));
+
+  const lineageRootById = new Map(experienceIds.map((id) => [id, id]));
+  const findLineageRoot = (id) => {
+    const parent = lineageRootById.get(id);
+    if (parent === id) return id;
+    const root = findLineageRoot(parent);
+    lineageRootById.set(id, root);
+    return root;
+  };
+  const joinLineages = (firstId, secondId) => {
+    const firstRoot = findLineageRoot(firstId);
+    const secondRoot = findLineageRoot(secondId);
+    if (firstRoot === secondRoot) return;
+    const [root, child] = firstRoot.localeCompare(secondRoot) < 0
+      ? [firstRoot, secondRoot]
+      : [secondRoot, firstRoot];
+    lineageRootById.set(child, root);
+  };
+  experienceIds.forEach((id) => {
+    (parentIdsByExperienceId.get(id) || []).forEach((parentId) => joinLineages(id, parentId));
+  });
+  const lineageIdByExperienceId = new Map(experienceIds.map((id) => [id, findLineageRoot(id)]));
+
+  return { depthByExperienceId, lineageIdByExperienceId, parentIdsByExperienceId };
+}
