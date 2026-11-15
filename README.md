@@ -75,7 +75,7 @@ Driving a host application's own package, with layout computed by a backend:
 | Prop | Default | Purpose |
 | --- | --- | --- |
 | `colorPattern` | `'classic'` | `hasm_color_pattern` id driving every derived color. |
-| `labels` | built-in English | Overrides for toolbar labels (`personScope`, `experienceScope`, `selectAll`, `selectNone`, `clearScope`, `scopeHint`, `timeScale`, `zScale`, `sampleModel`, `viewMode`, `topView`, `factTitle`, `factTime`), the tooltip's `owner` label, and the large-package `scopePrompt`. |
+| `labels` | built-in English | Overrides for toolbar labels (`personScope`, `experienceScope`, `selectAll`, `selectNone`, `clearScope`, `scopeHint`, `timeScale`, `zScale`, `sampleModel`, `viewMode`, `topView`, `distributionView`, `distributionViewLabel`, `interactionDistribution`, `factTitle`, `factTime`), the tooltip's `owner` label, and the large-package `scopePrompt`. |
 | `model` | `null` | External HASM model. When omitted, the bundled sample selector is shown instead. Accepts both camelCase and snake_case entity keys. |
 | `computeLayout` | `null` | `(scopedModel, filter, { isFilterUpdate }) => payload \| Promise<payload>`. Defaults to the bundled `computeVisualizerLayoutJS`. Rejections are left to the host to present. |
 | `onSelectNode` | `null` | Called on node click. When supplied, the built-in node inspector is suppressed. |
@@ -115,7 +115,8 @@ Scope selection narrows the **model** before layout rather than trimming geometr
 ## Extended Commit Graph rendering
 
 - 3D uses the XY plane for EXPERIENCE distribution and Z for time. EXPERIENCE branches stay at fixed XY positions; solid FACT markers are recorded events and hollow markers are recursive reflections on ancestor branches.
-- A new 3D camera fits the rendered graph; the 3D-only XY top view button looks down from positive Z. Both automatic views refit on resize until camera navigation starts, while saved camera states are restored.
+- A new 3D camera fits the rendered graph with later time vertically upward; the 3D-only XY top view button looks down from positive Z. Both automatic views refit on resize until camera navigation starts, while saved camera states are restored.
+- The separate XY view shows EXPERIENCEs and parent relationships without FACT markers. FACT LINK endpoints project to their directly associated EXPERIENCEs; LINK curves and loops remain selectable.
 - 2D uses the horizontal axis for EXPERIENCE distribution and vertical rows for time, with the same solid/hollow FACT distinction.
 - Both views draw every supported LINK as a straight dashed line. FACT-to-EXPERIENCE LINKs attach to the nearest visible timeline point; EXPERIENCE-to-EXPERIENCE LINKs start nearest the viewport center and attach to the nearest point on the other visible timeline. Attachments update when the view changes.
 - Hovering a FACT highlights its endpoint LINKs even on a recursively reflected ancestor marker. See the [visualization specification](doc/visualization.md) for all entity and hover rules.

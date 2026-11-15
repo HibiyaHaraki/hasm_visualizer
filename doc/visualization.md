@@ -34,11 +34,23 @@ select the entity.
 
 ## 3D camera
 
-The initial perspective camera fits the rendered graph and its timeline/labels.
+The initial perspective camera fits the rendered graph and its timeline/labels,
+looking horizontally across XY with later time (positive Z) upward.
 In 3D, **XY top view** fits the graph looking down from positive Z with positive
 Y upward. Both automatic views refit when the viewport changes, until the user
 starts orbiting, panning or zooming. Saved camera positions are restored instead
 of being refitted. Scope and the render budget still determine what is visible.
+
+## XY EXPERIENCE distribution
+
+The separate XY view displays all scoped EXPERIENCEs at their layout XY
+positions, including those without FACTs, plus solid parent/child lines. It
+does not draw FACT markers or a FACT table. LINKs appear as dashed selectable
+curves: each FACT endpoint maps to all its directly associated visible
+EXPERIENCEs, while EXPERIENCE endpoints map to themselves. Distinct endpoint
+pairs form all projected pairs, including loops when they map to the same
+EXPERIENCE. Duplicate pairs from one LINK collapse; separate LINKs remain
+selectable. PERSON, missing, and unassociated FACT endpoints are omitted.
 
 ## LINK endpoints
 

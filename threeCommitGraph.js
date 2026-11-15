@@ -215,7 +215,9 @@ function graphBounds(payload) {
     bounds.expandByPoint(new THREE.Vector3(-14.2, 0, maxZ));
   }
   if (bounds.isEmpty()) bounds.set(new THREE.Vector3(-1, -1, -1), new THREE.Vector3(1, 1, 1));
-  return bounds.expandByScalar(2);
+  bounds.min.sub(new THREE.Vector3(2, 2, 0.6));
+  bounds.max.add(new THREE.Vector3(2, 2, 0.6));
+  return bounds;
 }
 
 export function createCommitGraph(container, payload, theme, onSelect, onHover, factDatesById, initialViewState, onError) {
@@ -230,6 +232,8 @@ export function createCommitGraph(container, payload, theme, onSelect, onHover, 
   const bounds = graphBounds(payload);
   const sphere = bounds.getBoundingSphere(new THREE.Sphere());
   const restore3D = initialViewState && initialViewState.position && initialViewState.quaternion;
+  if (restore3D && initialViewState.up) camera.up.copy(initialViewState.up);
+  else if (!restore3D) camera.up.set(0, 0, 1);
   if (restore3D) {
     camera.position.copy(initialViewState.position);
     camera.quaternion.copy(initialViewState.quaternion);
@@ -258,7 +262,20 @@ export function createCommitGraph(container, payload, theme, onSelect, onHover, 
   const fitView = (direction) => {
     const verticalHalfFov = THREE.MathUtils.degToRad(camera.fov / 2);
     const horizontalHalfFov = Math.atan(Math.tan(verticalHalfFov) * camera.aspect);
-    const distance = Math.max(controls.minDistance, sphere.radius * 1.1 / Math.sin(Math.min(verticalHalfFov, horizontalHalfFov)));
+    const right = new THREE.Vector3().crossVectors(camera.up, direction).normalize();
+    const up = new THREE.Vector3().crossVectors(direction, right).normalize();
+    let distance = controls.minDistance;
+    for (const x of [bounds.min.x, bounds.max.x]) {
+      for (const y of [bounds.min.y, bounds.max.y]) {
+        for (const z of [bounds.min.z, bounds.max.z]) {
+          const corner = new THREE.Vector3(x, y, z).sub(sphere.center);
+          const depth = corner.dot(direction);
+          const extent = Math.max(Math.abs(corner.dot(right)) / Math.tan(horizontalHalfFov),
+            Math.abs(corner.dot(up)) / Math.tan(verticalHalfFov));
+          distance = Math.max(distance, depth + extent * 1.1, depth + camera.near * 2);
+        }
+      }
+    }
     controls.target.copy(sphere.center);
     camera.position.copy(sphere.center).addScaledVector(direction, distance);
     controls.maxDistance = Math.max(80, distance * 10);
@@ -273,7 +290,7 @@ export function createCommitGraph(container, payload, theme, onSelect, onHover, 
     camera.far = Math.max(1000, controls.maxDistance + sphere.radius * 2);
     camera.updateProjectionMatrix();
   } else {
-    autoFitDirection = new THREE.Vector3(13, 11, 15).normalize();
+    autoFitDirection = new THREE.Vector3(13, 11, 0).normalize();
     fitView(autoFitDirection);
   }
   controls.update();
@@ -554,9 +571,12 @@ export function createCommitGraph(container, payload, theme, onSelect, onHover, 
     position: camera.position.clone(),
     quaternion: camera.quaternion.clone(),
     target: controls.target.clone(),
+    up: camera.up.clone(),
   });
   disposeFn.setTopView = () => {
-    autoFitDirection = new THREE.Vector3(0, 0, 1);
+    autoFitDirection = camera.up.z === 1
+      ? new THREE.Vector3(0, -0.000001, 1).normalize()
+      : new THREE.Vector3(0, 0, 1);
     fitView(autoFitDirection);
   };
   return disposeFn;
