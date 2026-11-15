@@ -135,6 +135,7 @@ export function HasmVisualizerComponent({
   const [hoveredNode, setHoveredNode] = useState(null);
   const [selectedNode, setSelectedNode] = useState(null);
   const [isSceneRendering, setIsSceneRendering] = useState(false);
+  const [is3DReady, setIs3DReady] = useState(false);
   const [renderError, setRenderError] = useState('');
   const rendererFallbackMessage = labels?.rendererFallback || '3D rendering is unavailable; switched to 2D.';
   const renderingFailedMessage = labels?.renderingFailed || 'The 2D graph could not be rendered.';
@@ -332,6 +333,7 @@ export function HasmVisualizerComponent({
   }, []);
 
   useEffect(() => {
+    setIs3DReady(false);
     if (!sceneRef.current || !renderPayload) return undefined;
 
     logger.debug(`Rendering ${viewMode.toUpperCase()} commit graph`, {
@@ -411,6 +413,7 @@ export function HasmVisualizerComponent({
             viewStateByModeRef.current[viewMode],
             handleThreeError,
           );
+          if (active) setIs3DReady(typeof disposeSceneRef.current.setTopView === 'function');
         }
         if (active) setIsSceneRendering(false);
       } catch (error) {
@@ -428,6 +431,7 @@ export function HasmVisualizerComponent({
 
     return () => {
       active = false;
+      setIs3DReady(false);
       cancel(frameId);
       setIsSceneRendering(false);
       if (typeof disposeSceneRef.current?.getViewState === 'function') {
@@ -609,6 +613,22 @@ export function HasmVisualizerComponent({
             </button>
           </div>
         </div>
+
+        {viewMode === '3d' && (
+          <div className="HasmVisualizer_ControlGroup">
+            <button
+              type="button"
+              className="HasmVisualizer_ViewToggleButton btn btn-sm btn-outline-secondary"
+              disabled={!is3DReady || isSceneRendering || needsScope}
+              onClick={() => {
+                logger.debug('[SEQ-MD-03][CAMERA] Showing XY top view');
+                disposeSceneRef.current.setTopView?.();
+              }}
+            >
+              {labels?.topView || 'XY top view'}
+            </button>
+          </div>
+        )}
 
         <div className="HasmVisualizer_ControlGroup HasmVisualizer_TimeGroup">
           <label className="HasmVisualizer_Label" htmlFor="hasm-visualizer-time-scale">

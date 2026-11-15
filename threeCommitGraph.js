@@ -197,6 +197,27 @@ function createTimelineAxis(scene, payload, factDatesById, color) {
   return disposables;
 }
 
+// SEQ-MD-03: include curved connectors and labels, not just FACT positions.
+function graphBounds(payload) {
+  const bounds = new THREE.Box3();
+  payload.nodes3d.forEach((node) => {
+    if (node.entityType !== "PERSON") bounds.expandByPoint(new THREE.Vector3(node.x, node.y, node.z));
+  });
+  payload.lines3d.forEach((line) => {
+    [line.from, line.to, ...(line.controlPoints || [])].forEach((point) => {
+      bounds.expandByPoint(new THREE.Vector3(...point));
+    });
+  });
+  const facts = payload.nodes3d.filter((node) => node.entityType === "FACT");
+  if (facts.length) {
+    const maxZ = facts.reduce((highest, node) => Math.max(highest, node.z), 0);
+    bounds.expandByPoint(new THREE.Vector3(-14.2, 0, 0));
+    bounds.expandByPoint(new THREE.Vector3(-14.2, 0, maxZ));
+  }
+  if (bounds.isEmpty()) bounds.set(new THREE.Vector3(-1, -1, -1), new THREE.Vector3(1, 1, 1));
+  return bounds.expandByScalar(2);
+}
+
 export function createCommitGraph(container, payload, theme, onSelect, onHover, factDatesById, initialViewState, onError) {
   const width = Math.max(container.clientWidth, 1);
   const height = Math.max(container.clientHeight, 1);
@@ -206,13 +227,12 @@ export function createCommitGraph(container, payload, theme, onSelect, onHover, 
   const { trunkColorByPositionKey, factColorByPositionKey } = buildExperienceColorMaps(payload, theme);
 
   const camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 1000);
+  const bounds = graphBounds(payload);
+  const sphere = bounds.getBoundingSphere(new THREE.Sphere());
   const restore3D = initialViewState && initialViewState.position && initialViewState.quaternion;
   if (restore3D) {
     camera.position.copy(initialViewState.position);
     camera.quaternion.copy(initialViewState.quaternion);
-  } else {
-    camera.position.set(13, 11, 20);
-    camera.lookAt(0, 0, 5);
   }
 
   let renderer;
@@ -231,12 +251,33 @@ export function createCommitGraph(container, payload, theme, onSelect, onHover, 
   renderer.domElement.style.touchAction = "none";
 
   const controls = new OrbitControls(camera, renderer.domElement);
-  if (restore3D && initialViewState.target) { controls.target.copy(initialViewState.target); } else { controls.target.set(0, 0, 5); }
   controls.enableDamping = false;
   controls.enablePan = true;
   controls.minDistance = 4;
-  controls.maxDistance = 80;
+  let autoFitDirection = null;
+  const fitView = (direction) => {
+    const verticalHalfFov = THREE.MathUtils.degToRad(camera.fov / 2);
+    const horizontalHalfFov = Math.atan(Math.tan(verticalHalfFov) * camera.aspect);
+    const distance = Math.max(controls.minDistance, sphere.radius * 1.1 / Math.sin(Math.min(verticalHalfFov, horizontalHalfFov)));
+    controls.target.copy(sphere.center);
+    camera.position.copy(sphere.center).addScaledVector(direction, distance);
+    controls.maxDistance = Math.max(80, distance * 10);
+    camera.far = Math.max(1000, controls.maxDistance + sphere.radius * 2);
+    camera.updateProjectionMatrix();
+    controls.update();
+  };
+  if (restore3D) {
+    if (initialViewState.target) controls.target.copy(initialViewState.target);
+    const distance = camera.position.distanceTo(controls.target);
+    controls.maxDistance = Math.max(80, distance * 10);
+    camera.far = Math.max(1000, controls.maxDistance + sphere.radius * 2);
+    camera.updateProjectionMatrix();
+  } else {
+    autoFitDirection = new THREE.Vector3(13, 11, 15).normalize();
+    fitView(autoFitDirection);
+  }
   controls.update();
+  controls.addEventListener("start", () => { autoFitDirection = null; });
 
   scene.add(new THREE.AmbientLight(theme.textColor, 1.5));
   const keyLight = new THREE.DirectionalLight(theme.mainColor, 2);
@@ -477,6 +518,7 @@ export function createCommitGraph(container, payload, theme, onSelect, onHover, 
     camera.aspect = nextWidth / nextHeight;
     camera.updateProjectionMatrix();
     renderer.setSize(nextWidth, nextHeight);
+    if (autoFitDirection) fitView(autoFitDirection);
     renderVisibleScene();
   };
   window.addEventListener("resize", resize);
@@ -513,5 +555,9 @@ export function createCommitGraph(container, payload, theme, onSelect, onHover, 
     quaternion: camera.quaternion.clone(),
     target: controls.target.clone(),
   });
+  disposeFn.setTopView = () => {
+    autoFitDirection = new THREE.Vector3(0, 0, 1);
+    fitView(autoFitDirection);
+  };
   return disposeFn;
 }

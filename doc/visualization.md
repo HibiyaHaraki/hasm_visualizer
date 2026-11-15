@@ -32,6 +32,14 @@ not moved. Z scale changes the timeline extent. These modes use native graph
 scrolling with a fixed header; FACT names/dates appear on hover and clicks still
 select the entity.
 
+## 3D camera
+
+The initial perspective camera fits the rendered graph and its timeline/labels.
+In 3D, **XY top view** fits the graph looking down from positive Z with positive
+Y upward. Both automatic views refit when the viewport changes, until the user
+starts orbiting, panning or zooming. Saved camera positions are restored instead
+of being refitted. Scope and the render budget still determine what is visible.
+
 ## LINK endpoints
 
 Every unordered pair of distinct renderable FACT/EXPERIENCE IDs in a LINK's
